@@ -6,7 +6,7 @@ MutableSidekicksPlugin is an Unreal Engine plugin workflow for building Synty Si
 
 ## Requirements
 
-- Unreal Engine 5.8 Preview 1 or a compatible 5.8 build.
+- Unreal Engine 5.8.
 - Unreal Mutable plugin enabled.
 - Synty Sidekicks skeletal mesh content imported into your project.
 - This plugin installed in your project, for example:
