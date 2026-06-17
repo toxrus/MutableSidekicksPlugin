@@ -14,6 +14,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogSDMutableColorPreset, Log, All);
 
 namespace
 {
+	// Sidekicks palette textures are 16x16 logical slots, stored as 2x2 pixel patches in a 32x32 texture.
 	constexpr int32 SidekicksColorTextureSize = 32;
 	constexpr int32 SidekicksColorPatchSize = 2;
 	constexpr int32 SidekicksColorPatchesPerRow = SidekicksColorTextureSize / SidekicksColorPatchSize;
@@ -41,6 +42,7 @@ namespace
 	{
 		OutPixels.SetNumZeroed(SidekicksColorTextureSize * SidekicksColorTextureSize);
 
+		// The texture layout is not Y-flipped; it matches the palette indexing used by the editor and catalog scanner.
 		for (int32 ColorIndex = 0; ColorIndex < FSDMutableColorPalette::NumSidekicksColorSlots; ++ColorIndex)
 		{
 			const FColor PixelColor = Palette.GetResolvedColorSlot(ColorIndex).ToFColor(false);
@@ -302,6 +304,7 @@ UTexture2D* USDMutableColorPreset::BuildTransientColorTextureFromPalette(const F
 
 	if (TextureOuter && TextureOuter != Texture->GetOuter())
 	{
+		// Callers can choose GetTransientPackage() to prevent editor-world objects from owning generated preview textures.
 		Texture->Rename(nullptr, TextureOuter, REN_DontCreateRedirectors | REN_NonTransactional);
 	}
 

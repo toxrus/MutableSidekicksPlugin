@@ -32,6 +32,7 @@ namespace
 	template <typename FuncType>
 	bool ForEachCatalogPack(const USDMutableCatalog& Catalog, FuncType&& Func)
 	{
+		// Runtime queries span every pack group, but each pack still stays soft-referenced on the root catalog.
 		const TArray<TSoftObjectPtr<USDMutableCatalogPack>>* PackGroups[] =
 		{
 			&Catalog.SpeciesPackCatalogs,
@@ -79,6 +80,7 @@ namespace
 
 	const TArray<FName>& GetSyntyTransformBreakerBoneNames()
 	{
+		// Some imported Sidekicks meshes include intermediate transform bones that need to be removed in depth order.
 		static const TArray<FName> BadBoneNames = {
 			TEXT("transform1"),
 			TEXT("transform2"),
@@ -185,6 +187,7 @@ namespace
 		const TArray<FMeshBoneInfo>& BoneInfos = NewReferenceSkeleton.GetRawRefBoneInfo();
 		const TArray<FTransform>& Transforms = NewReferenceSkeleton.GetRawRefBonePose();
 
+		// Keep the LOD0 mesh description bone table and skin-weight indices aligned with the edited reference skeleton.
 		FMeshDescription MeshDescription;
 		SkeletalMesh.CloneMeshDescription(LODIndex, MeshDescription);
 		if (MeshDescription.IsEmpty())
@@ -426,6 +429,7 @@ namespace
 	{
 		TMap<int32, FName> ColorNames;
 
+		// The CSV is editor metadata only; missing rows simply fall back to Color_### display names.
 		const FString ColorListPath = FPaths::Combine(FPaths::ProjectDir(), TEXT("Raw/Sidekicks_ColorList.csv"));
 		TArray<FString> Lines;
 		if (!FFileHelper::LoadFileToStringArray(Lines, *ColorListPath))
@@ -494,6 +498,7 @@ namespace
 		AddPaletteCellIfValid(UVToPaletteCell(UV1), OutPaletteIndices);
 		AddPaletteCellIfValid(UVToPaletteCell(UV2), OutPaletteIndices);
 
+		// Triangles can cross palette-cell boundaries, so sample the covered bounding cells as well as vertices.
 		const float MinU = FMath::Min3(UV0.X, UV1.X, UV2.X);
 		const float MaxU = FMath::Max3(UV0.X, UV1.X, UV2.X);
 		const float MinV = FMath::Min3(UV0.Y, UV1.Y, UV2.Y);
@@ -552,6 +557,7 @@ namespace
 			return ColorProperties;
 		}
 
+		// Sidekicks parts use UV0 against a 16x16 color palette grid; this records which cells each mesh touches.
 		TArray<uint32> Indices;
 		LODData.MultiSizeIndexContainer.GetIndexBuffer(Indices);
 
@@ -969,6 +975,7 @@ namespace
 	{
 		TMap<FName, FSoftObjectPath> ThumbnailsByAssetName;
 
+		// Icons follow T_Icon_<SkeletalMeshAssetName>; store soft paths so catalog rows stay cheap to load.
 		FARFilter Filter;
 		Filter.bRecursivePaths = true;
 		Filter.ClassPaths.Add(UTexture2D::StaticClass()->GetClassPathName());
@@ -1202,6 +1209,7 @@ namespace
 		const TMap<int32, FName> ColorNamesByIndex = LoadSidekicksColorNameMap();
 		const TMap<FName, FSoftObjectPath> ThumbnailsByAssetName = BuildIconThumbnailMap();
 
+		// Pack rebuilds filter by pack tokens, infer slots from filename tokens, and keep mesh references soft.
 		for (const FAssetData& MeshAsset : MeshAssets)
 		{
 			const FString AssetName = MeshAsset.AssetName.ToString();
@@ -1232,6 +1240,7 @@ namespace
 
 			if (USkeletalMesh* Mesh = Cast<USkeletalMesh>(MeshAsset.GetAsset()))
 			{
+				// Loading the mesh here is intentional so the catalog can expose color-slot metadata in the UI.
 				Entry.ColorProperties = BuildColorPropertiesFromMesh(Mesh, ColorNamesByIndex);
 				Stats.NumColorPropertiesAdded += Entry.ColorProperties.Num();
 			}

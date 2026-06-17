@@ -6,6 +6,7 @@
 
 class UTexture2D;
 
+/** One Sidekicks palette cell override. Disabled slots resolve to the palette default color. */
 USTRUCT(BlueprintType)
 struct FSDMutableColorSlot
 {
@@ -18,6 +19,7 @@ struct FSDMutableColorSlot
 	FLinearColor Color = FLinearColor::Black;
 };
 
+/** Reconstructable 256-slot Sidekicks palette used to derive the 32x32 BaseColor control texture. */
 USTRUCT(BlueprintType)
 struct MUTABLESIDEKICKSPLUGIN_API FSDMutableColorPalette
 {
@@ -28,6 +30,7 @@ struct MUTABLESIDEKICKSPLUGIN_API FSDMutableColorPalette
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable|Color")
 	FLinearColor DefaultColor = FLinearColor::Black;
 
+	/** Fixed-size Sidekicks color slots; each slot becomes one 2x2 patch in generated textures. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable|Color", meta=(TitleProperty="Color"))
 	TArray<FSDMutableColorSlot> ColorSlots;
 
@@ -50,6 +53,7 @@ struct MUTABLESIDEKICKSPLUGIN_API FSDMutableColorPalette
 	void ClearColorPaletteOverrides();
 };
 
+/** Utility DataAsset for authoring palettes and generating persistent or transient Sidekicks color textures. */
 UCLASS(BlueprintType)
 class MUTABLESIDEKICKSPLUGIN_API USDMutableColorPreset : public UDataAsset
 {
@@ -72,6 +76,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable|Texture")
 	bool bOverwriteExistingTexture = true;
 
+	/** Preview output only; durable recipes store palette values and soft texture references separately. */
 	UPROPERTY(VisibleAnywhere, Transient, BlueprintReadOnly, Category="SDMutable|Texture")
 	TObjectPtr<UTexture2D> LastGeneratedTexture;
 

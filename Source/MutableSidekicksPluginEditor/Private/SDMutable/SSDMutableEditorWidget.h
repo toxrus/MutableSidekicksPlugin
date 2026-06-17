@@ -44,6 +44,7 @@ struct FSDMutablePartListItem
 	TSharedPtr<FSlateBrush> ThumbnailBrush;
 };
 
+/** Main Slate editor for Sidekicks recipes, shared by COI, recipe DataAsset, and actor component targets. */
 class SSDMutableEditorWidget final : public SCompoundWidget
 {
 public:
@@ -58,10 +59,13 @@ public:
 	void SetTargetCustomizableObjectInstance(UCustomizableObjectInstance* InCustomizableObjectInstance);
 
 private:
+	// Target and catalog refresh.
 	void ResetPreviewTargetToDefaults();
 	void RefreshCatalog();
 	void RefreshTargetFromSelection();
 	void RefreshTargetFromSelectedCoi();
+
+	// List rebuilding and selection UI.
 	void RebuildSlotItems();
 	void RebuildPackItems();
 	void RebuildPartItems();
@@ -72,6 +76,8 @@ private:
 	void RebuildSelectionPanels();
 	void RefreshPartSelectionWidgets();
 	void RebuildColorSwatchGrid();
+
+	// Control builders.
 	TSharedRef<SWidget> BuildMorphControlsWidget();
 	TSharedRef<SWidget> BuildMaterialControlsWidget();
 	TSharedRef<SWidget> BuildMaterialColorControlsWidget();
@@ -88,6 +94,8 @@ private:
 	bool CanSelectAdjacentPartOption(int32 Direction) const;
 	void OnPartComboSelectionChanged(TSharedPtr<FSDMutablePartListItem> PartItem, ESelectInfo::Type SelectInfo);
 	void OnPartListSelectionChanged(TSharedPtr<FSDMutablePartListItem> PartItem, ESelectInfo::Type SelectInfo);
+
+	// Recipe editing and target application.
 	float GetBodyShapeValue(FName ParameterName) const;
 	void SetBodyShapeValue(FName ParameterName, float Value);
 	float GetMaterialScalarValue(FName ParameterName) const;
@@ -98,6 +106,8 @@ private:
 	void SetColorSlot(int32 ColorSlotIndex, FLinearColor Color, bool bApplyToTarget);
 	void ApplyColorPaletteToTarget();
 	bool ApplyEditorRecipeToTargetCoi();
+
+	// Direct COI targets may need async load/compile before their Mutable parameters can be written.
 	bool IsTargetCoiReadyForRecipeApply(UCustomizableObjectInstance& Coi);
 	void ScheduleDeferredCoiRecipeApply(UCustomizableObjectInstance& Coi);
 	void CancelDeferredCoiRecipeApply();
@@ -108,6 +118,8 @@ private:
 	void ClearColorPalette();
 	void SaveCurrentRecipe();
 	void SaveCurrentRecipeAsset();
+
+	// JSON exchange always imports into the current target instead of retargeting to paths embedded in the file.
 	FSDMutableRecipeJsonExchange MakeCurrentRecipeJsonExchange() const;
 	void ApplyRecipeJsonExchangeToCurrentTarget(const FSDMutableRecipeJsonExchange& Exchange);
 	void ExportCurrentRecipeJson();
@@ -123,6 +135,7 @@ private:
 	FText GetColorStatusText() const;
 	TSharedRef<SWidget> GeneratePartComboWidget(TSharedPtr<FSDMutablePartListItem> PartItem) const;
 
+	// Weak target references keep the shared tab from owning assets or actor components longer than the editor does.
 	TWeakObjectPtr<USDMutableCatalog> LoadedCatalog;
 	TWeakObjectPtr<USDMutableComponent> TargetComponent;
 	TWeakObjectPtr<UCustomizableObjectInstance> TargetCustomizableObjectInstance;
@@ -145,6 +158,7 @@ private:
 	TSharedPtr<SUniformGridPanel> ColorSwatchGrid;
 	FSDMutableSidekickRecipe EditorRecipe;
 	FSDMutableColorPalette EditorColorPalette;
+	// Slate holds direct-COI preview textures strongly; actor targets let USDMutableComponent own transient textures instead.
 	TStrongObjectPtr<UTexture2D> PreviewColorTexture;
 	FString CatalogStatus;
 	FString TargetStatus;

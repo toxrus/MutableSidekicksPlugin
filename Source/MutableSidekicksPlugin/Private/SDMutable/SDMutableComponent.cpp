@@ -109,6 +109,7 @@ namespace
 			}
 		}
 
+		// A valid component without a COI can still receive the clone created by this component.
 		return FirstValidComponent;
 	}
 }
@@ -125,6 +126,7 @@ void USDMutableComponent::OnRegister()
 	{
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
 #if WITH_EDITOR
+		// Loaded editor-world actors should preview their saved local recipe before PIE starts.
 		RefreshEditorPreviewFromRecipe();
 #endif
 	}
@@ -132,6 +134,7 @@ void USDMutableComponent::OnRegister()
 
 void USDMutableComponent::OnUnregister()
 {
+	// Drop transient preview/runtime objects before the actor/component leaves the world.
 	RuntimeColorTexture = nullptr;
 	EditorCustomizableObjectInstance = nullptr;
 	Super::OnUnregister();
@@ -156,6 +159,7 @@ void USDMutableComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void USDMutableComponent::PostLoad()
 {
 	Super::PostLoad();
+	// These references are world-session state and should be reconstructed from the durable recipe after load.
 	EditorCustomizableObjectInstance = nullptr;
 	RuntimeColorTexture = nullptr;
 	if (!HasAnyFlags(RF_ClassDefaultObject))
@@ -181,6 +185,7 @@ void USDMutableComponent::RefreshEditorPreviewFromRecipe()
 		return;
 	}
 
+	// Automatic hydration is visual state, not a user edit, so avoid dirtying the level/package.
 	TGuardValue<bool> SuppressEditorPreviewDirty(bSuppressEditorPreviewDirty, true);
 	ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
 }
@@ -242,6 +247,7 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 	UCustomizableObjectInstance* ActorInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
 	if (!IsRuntimeWorld() && EditorCustomizableObjectInstance)
 	{
+		// Once actor-mode editing has created a private editor clone, keep the skeletal component pointed at it.
 		if (ActorInstance != EditorCustomizableObjectInstance)
 		{
 #if WITH_EDITOR
@@ -352,6 +358,7 @@ bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLog
 		}
 	}
 
+	// Editor clones isolate placed actors from shared COI assets while still using the template's Customizable Object.
 	if (TemplateInstance)
 	{
 		EditorCustomizableObjectInstance = TemplateInstance->CloneStatic(this);
@@ -486,6 +493,7 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 		}
 	}
 
+	// Game worlds get a per-actor transient clone so runtime changes cannot leak through shared template assets.
 	if (TemplateInstance)
 	{
 		RuntimeCustomizableObjectInstance = TemplateInstance->CloneStatic(this);
@@ -560,6 +568,7 @@ void USDMutableComponent::SetColorPalette(const FSDMutableColorPalette& InColorP
 
 void USDMutableComponent::ApplyRecipeToMutable()
 {
+	// Parameter writes must target the current-world clone when one exists, not the durable template COI.
 	if (IsRuntimeWorld())
 	{
 		EnsureRuntimeCustomizableObjectInstance();
@@ -587,6 +596,7 @@ void USDMutableComponent::ApplyRecipeToMutable()
 
 	if (!ColorPalette.ColorSlots.IsEmpty())
 	{
+		// Rebuild the derived BaseColor texture from local palette state. The transient package avoids old-world references.
 		RuntimeColorTexture = USDMutableColorPreset::BuildTransientColorTextureFromPalette(ColorPalette, GetTransientPackage());
 		if (RuntimeColorTexture)
 		{
@@ -836,6 +846,7 @@ bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Sele
 
 	if (Selection.OptionId.IsNone())
 	{
+		// Mutable skeletal mesh parameters require a valid mesh, so clearing a slot applies the catalog's empty mesh.
 		USkeletalMesh* EmptyMesh = Catalog->LoadEmptySkeletalMesh();
 		if (!EmptyMesh)
 		{

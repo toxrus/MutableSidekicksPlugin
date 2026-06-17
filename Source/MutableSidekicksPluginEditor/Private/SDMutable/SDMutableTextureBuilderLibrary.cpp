@@ -10,6 +10,7 @@
 
 namespace
 {
+	// Must match USDMutableColorPreset's runtime builder: 256 logical palette slots, 2x2 pixels per slot.
 	constexpr int32 TextureSize = 32;
 	constexpr int32 PatchSize = 2;
 	constexpr int32 PatchesPerRow = TextureSize / PatchSize;
@@ -57,6 +58,7 @@ namespace
 
 	void WritePixelDataToTexture(UTexture2D& Texture, const TArray<FColor>& Pixels)
 	{
+		// Persistent editor assets need both platform data for preview and source data for saving/cooking.
 		FTexturePlatformData* PlatformData = Texture.GetPlatformData();
 		if (!PlatformData)
 		{

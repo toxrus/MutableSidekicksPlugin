@@ -9,6 +9,7 @@
 class UCustomizableObjectInstance;
 class UTexture2D;
 
+/** Versioned payload used for JSON import/export without requiring the target asset to be present. */
 USTRUCT(BlueprintType)
 struct FSDMutableRecipeJsonExchange
 {
@@ -33,6 +34,7 @@ struct FSDMutableRecipeJsonExchange
 	FString CustomizableObjectInstancePath;
 };
 
+/** Authoritative saved Sidekick preset: recipe and palette are source data, COI/texture refs are generated companions. */
 UCLASS(BlueprintType)
 class MUTABLESIDEKICKSPLUGIN_API USDMutableSidekickRecipeAsset : public UDataAsset
 {
@@ -41,15 +43,19 @@ class MUTABLESIDEKICKSPLUGIN_API USDMutableSidekickRecipeAsset : public UDataAss
 public:
 	USDMutableSidekickRecipeAsset();
 
+	/** Reconstructable mesh, morph, and material state. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable")
 	FSDMutableSidekickRecipe Recipe;
 
+	/** Reconstructable palette state used to rebuild the BaseColor texture. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable")
 	FSDMutableColorPalette ColorPalette;
 
+	/** Derived texture asset that can be regenerated from ColorPalette. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable")
 	TSoftObjectPtr<UTexture2D> ColorTexture;
 
+	/** Companion Mutable COI that receives the recipe during editor saves. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="SDMutable")
 	TSoftObjectPtr<UCustomizableObjectInstance> CustomizableObjectInstance;
 

@@ -990,6 +990,7 @@ void SSDMutableEditorWidget::Construct(const FArguments& InArgs)
 
 void SSDMutableEditorWidget::ResetPreviewTargetToDefaults()
 {
+	// Target switching only releases Slate-owned preview resources; component-owned editor COIs keep their actor preview state.
 	PreviewColorTexture.Reset();
 }
 
@@ -1066,6 +1067,7 @@ void SSDMutableEditorWidget::RefreshTargetFromSelection()
 
 		TargetComponent = Component;
 		Component->SynchronizeCustomizableObjectInstanceFromOwner();
+		// Actor mode starts from the component's durable local state, not from the previous Slate target or COI defaults.
 		EditorRecipe = Component->Recipe;
 		EditorColorPalette = Component->ColorPalette;
 		EditorColorPalette.EnsureColorSlotCount();
@@ -1138,6 +1140,7 @@ void SSDMutableEditorWidget::SetTargetCustomizableObjectInstance(UCustomizableOb
 {
 	if (USDMutableSidekickRecipeAsset* RecipeAsset = FindRecipeAssetForCustomizableObjectInstance(InCustomizableObjectInstance))
 	{
+		// A recipe DA that references this COI is the authoritative source; edits should keep DA, texture, and COI in sync.
 		SetTargetRecipeAsset(RecipeAsset);
 		return;
 	}
@@ -1199,6 +1202,7 @@ void SSDMutableEditorWidget::SetTargetRecipeAsset(USDMutableSidekickRecipeAsset*
 	EditorColorPalette = InRecipeAsset->ColorPalette;
 	EditorColorPalette.EnsureColorSlotCount();
 
+	// DA targets prefer their persisted texture asset so Save can update the same generated companion asset.
 	if (UTexture2D* ColorTexture = InRecipeAsset->ColorTexture.LoadSynchronous())
 	{
 		EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(ColorTexture);
@@ -2609,6 +2613,7 @@ void SSDMutableEditorWidget::ApplyColorPaletteToTarget()
 
 	if (Component)
 	{
+		// Actor targets persist palette state on the component; the component builds/applies its own transient texture.
 		Component->SetColorPalette(EditorColorPalette, true);
 		Component->UpdateMutableInstance(false, false);
 
@@ -2624,6 +2629,7 @@ void SSDMutableEditorWidget::ApplyColorPaletteToTarget()
 		TextureOuter = GetTransientPackage();
 	}
 
+	// Direct COI targets do not have component-local palette state, so Slate owns the transient preview texture.
 	PreviewColorTexture.Reset(USDMutableColorPreset::BuildTransientColorTextureFromPalette(EditorColorPalette, TextureOuter));
 	if (!PreviewColorTexture.IsValid())
 	{
@@ -2667,6 +2673,7 @@ bool SSDMutableEditorWidget::IsTargetCoiReadyForRecipeApply(UCustomizableObjectI
 
 	if (!bDeferredCoiCompileRequested)
 	{
+		// Cold COIs need their Customizable Object compiled before parameter writes are reliable.
 		FCompileParams CompileParams;
 		CompileParams.bSkipIfCompiled = true;
 		CompileParams.bSkipIfNotOutOfDate = false;
@@ -2779,6 +2786,7 @@ bool SSDMutableEditorWidget::CommitEditorStateToRecipeAsset(const bool bUpdateCo
 
 	if (bUpdateColorTexture)
 	{
+		// The DA palette is source of truth; the texture is a generated companion refreshed during save/apply.
 		if (UTexture2D* ColorTexture = RecipeAsset->ColorTexture.LoadSynchronous())
 		{
 			if (USDMutableTextureBuilderLibrary::WriteSidekicksColorTextureFromPalette(ColorTexture, EditorColorPalette))
@@ -3163,6 +3171,7 @@ void SSDMutableEditorWidget::ApplyPart(TSharedPtr<FSDMutablePartListItem> PartIt
 	SelectedPartItem = PartItem;
 	if (Component)
 	{
+		// Component writes go through USDMutableComponent so actor-local editor/runtime COI ownership is preserved.
 		if (!Component->Catalog)
 		{
 			Component->Catalog = Catalog;

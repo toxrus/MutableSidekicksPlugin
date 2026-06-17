@@ -16,6 +16,7 @@ namespace
 
 	UCustomizableObject* LoadSidekicksCustomizableObject()
 	{
+		// Prefer explicit project settings; the hardcoded path is only a legacy fallback for local projects.
 		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
 		if (Settings && !Settings->SidekicksCustomizableObject.IsNull())
 		{

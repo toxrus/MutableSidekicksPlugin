@@ -4,6 +4,7 @@
 
 namespace SDMutableParameters
 {
+	// Centralized Mutable parameter names so recipe application stays aligned with CO_Sidekicks.
 	inline const FName MaleFemale = TEXT("MaleFemale");
 	inline const FName Heavy = TEXT("Heavy");
 	inline const FName Buff = TEXT("Buff");

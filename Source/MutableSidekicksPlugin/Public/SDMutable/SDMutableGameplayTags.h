@@ -4,6 +4,7 @@
 
 namespace SDMutableGameplayTags
 {
+	// Native tags identify pack/category/slot metadata during scans and keep catalog DataAssets free of stringly typed labels.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Pack_Type_Species);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Pack_Type_Outfit);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Pack_Type_Shared);

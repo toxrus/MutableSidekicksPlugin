@@ -9,6 +9,7 @@ class USkeletalMesh;
 class UTexture2D;
 class USDMutableCatalogPack;
 
+/** Coarse pack grouping used by the root catalog to expose species, outfit, and shared content separately. */
 UENUM(BlueprintType)
 enum class ESDMutableCatalogPackType : uint8
 {
@@ -18,6 +19,7 @@ enum class ESDMutableCatalogPackType : uint8
 	Shared
 };
 
+/** Maps a plugin slot to the Mutable skeletal mesh parameter name written on a COI. */
 USTRUCT(BlueprintType)
 struct FSDMutableSlotTable
 {
@@ -30,6 +32,7 @@ struct FSDMutableSlotTable
 	FName MutableParameterName = NAME_None;
 };
 
+/** Filename token rule used by catalog rebuilds to infer which Sidekicks slot a mesh belongs to. */
 USTRUCT(BlueprintType)
 struct FSDMutableSlotNameRule
 {
@@ -42,6 +45,7 @@ struct FSDMutableSlotNameRule
 	ESDMutablePartSlot Slot = ESDMutablePartSlot::None;
 };
 
+/** Palette slots sampled from mesh UVs so the editor can highlight which color cells a part uses. */
 USTRUCT(BlueprintType)
 struct FSDMutablePartColorProperty
 {
@@ -57,6 +61,7 @@ struct FSDMutablePartColorProperty
 	FIntPoint PaletteCell = FIntPoint::ZeroValue;
 };
 
+/** One selectable Sidekicks mesh entry; mesh and thumbnail references stay soft until the user selects them. */
 USTRUCT(BlueprintType)
 struct FSDMutableCatalogPartEntry
 {
@@ -90,6 +95,7 @@ struct FSDMutableCatalogPartEntry
 	FString SourceAssetPath;
 };
 
+/** All selectable parts for one slot inside a pack catalog. */
 USTRUCT(BlueprintType)
 struct FSDMutableCatalogSlotParts
 {
@@ -102,6 +108,7 @@ struct FSDMutableCatalogSlotParts
 	TArray<FSDMutableCatalogPartEntry> Parts;
 };
 
+/** Per-pack DataAsset containing the scanned mesh entries for one species/outfit/shared content group. */
 UCLASS(BlueprintType)
 class MUTABLESIDEKICKSPLUGIN_API USDMutableCatalogPack : public UDataAsset
 {
@@ -120,9 +127,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Pack")
 	FGameplayTagContainer PackTags;
 
+	/** Optional scan roots for this pack; when empty, root catalog scan roots are used by rebuild-all. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
 	TArray<FString> ScanRootPaths;
 
+	/** Additional filename tokens that identify meshes belonging to this pack. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
 	TArray<FName> AssetNameTokens;
 
@@ -133,21 +142,25 @@ public:
 	void RebuildPackCatalogFromAssetRegistry();
 };
 
+/** Root catalog that ties together scan settings, slot rules, empty mesh defaults, and all pack catalogs. */
 UCLASS(BlueprintType)
 class MUTABLESIDEKICKSPLUGIN_API USDMutableCatalog : public UDataAsset
 {
 	GENERATED_BODY()
 
 public:
+	/** Mesh applied when a recipe clears a slot; Mutable skeletal mesh parameters need a valid mesh, not nullptr. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Defaults")
 	TSoftObjectPtr<USkeletalMesh> EmptySkeletalMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Sidekicks/Base/SKM_Sidekicks_Empty.SKM_Sidekicks_Empty")));
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Defaults")
 	TSoftObjectPtr<UTexture2D> EmptySkeletalMeshUIThumbnail;
 
+	/** Mesh scan roots for imported Synty assets. Empty shipped assets fall back to /Game/Sidekicks in code paths that resolve roots. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
 	TArray<FString> ScanRootPaths = { TEXT("/Game/Sidekicks") };
 
+	/** Optional roots used only to discover pack DataAssets, not the meshes inside already referenced packs. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
 	TArray<FString> PackCatalogScanRootPaths = { TEXT("/Game/Mutable/DataAssets") };
 
@@ -193,6 +206,7 @@ public:
 		{ TEXT("WRAP"), ESDMutablePartSlot::AttachmentWrap }
 	};
 
+	/** Mutable parameter table for every visible slot selector. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable", meta=(DisplayName="Slot Templates"))
 	TArray<FSDMutableSlotTable> PartTables = {
 		{ ESDMutablePartSlot::Hair, TEXT("Hair") },
@@ -247,15 +261,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Packs")
 	TArray<TSoftObjectPtr<USDMutableCatalogPack>> UnknownPackCatalogs;
 
+	/** Discover pack catalog DataAssets under PackCatalogScanRootPaths and sort them into pack groups. */
 	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
 	void RebuildCatalogFromAssetRegistry();
 
+	/** Rebuild every referenced pack using this root catalog's scan roots and slot-name rules. */
 	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
 	void RebuildAllPackCatalogsFromAssetRegistry();
 
+	/** Compare catalog mesh references against Asset Registry results under ScanRootPaths. */
 	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
 	void ValidateCatalogAgainstAssetRegistry();
 
+	/** Repair imported Synty meshes that contain intermediary transform bones incompatible with the runtime skeleton. */
 	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
 	void FixSyntySidekickSkeletonTransformBones();
 

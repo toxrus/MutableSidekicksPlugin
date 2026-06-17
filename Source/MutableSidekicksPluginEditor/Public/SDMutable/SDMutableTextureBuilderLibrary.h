@@ -8,6 +8,7 @@
 class USDMutableColorPreset;
 class UTexture2D;
 
+/** Editor-only helpers for writing the derived 32x32 Sidekicks color texture assets used by Mutable BaseColor. */
 UCLASS()
 class MUTABLESIDEKICKSPLUGINEDITOR_API USDMutableTextureBuilderLibrary : public UBlueprintFunctionLibrary
 {

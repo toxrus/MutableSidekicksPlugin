@@ -5,6 +5,7 @@
 #include "GameplayTagContainer.h"
 #include "SDMutableTypes.generated.h"
 
+/** Slot names are the plugin-side contract for the skeletal mesh parameters authored in CO_Sidekicks. */
 UENUM(BlueprintType)
 enum class ESDMutablePartSlot : uint8
 {
@@ -49,6 +50,7 @@ enum class ESDMutablePartSlot : uint8
 	AttachmentWrap
 };
 
+/** One reconstructable mesh choice in a recipe. NAME_None represents the catalog's explicit empty mesh option. */
 USTRUCT(BlueprintType)
 struct FSDMutablePartSelection
 {
@@ -61,6 +63,7 @@ struct FSDMutablePartSelection
 	FName OptionId = NAME_None;
 };
 
+/** Mutable morph sliders that shape the shared Sidekicks body. */
 USTRUCT(BlueprintType)
 struct FSDMutableBodyShape
 {
@@ -79,6 +82,7 @@ struct FSDMutableBodyShape
 	float Skinny = 0.0f;
 };
 
+/** Material controls stored with a recipe; the palette can override BaseColor with a generated texture at apply time. */
 USTRUCT(BlueprintType)
 struct FSDMutableMaterialSettings
 {
@@ -106,6 +110,7 @@ struct FSDMutableMaterialSettings
 	float DarkWeight = 0.0f;
 };
 
+/** Lightweight UI option used by editor selectors without forcing mesh assets to load. */
 USTRUCT(BlueprintType)
 struct FSDMutableOption
 {
@@ -124,6 +129,7 @@ struct FSDMutableOption
 	bool bIsNoneOption = false;
 };
 
+/** The durable character recipe: mesh choices, morph values, and material controls, but not derived generated assets. */
 USTRUCT(BlueprintType)
 struct FSDMutableSidekickRecipe
 {
