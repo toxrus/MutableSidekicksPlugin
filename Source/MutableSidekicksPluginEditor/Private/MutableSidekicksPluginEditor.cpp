@@ -14,7 +14,6 @@
 #include "MuCO/CustomizableObjectInstance.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Widgets/Docking/SDockTab.h"
-#include "Widgets/SWindow.h"
 
 #define LOCTEXT_NAMESPACE "FMutableSidekicksPluginEditorModule"
 
@@ -195,13 +194,6 @@ private:
 			LOCTEXT("OpenSidekicksMutableEditorTooltip", "Open the dockable Sidekicks Mutable editor tab."),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateRaw(this, &FMutableSidekicksPluginEditorModule::OpenEditorTab)));
-
-		Section.AddMenuEntry(
-			TEXT("OpenSidekicksMutableEditorWindow"),
-			LOCTEXT("OpenSidekicksMutableEditorWindow", "Sidekicks Mutable Window"),
-			LOCTEXT("OpenSidekicksMutableEditorWindowTooltip", "Open the Sidekicks Mutable editor in a standalone Slate window."),
-			FSlateIcon(),
-			FUIAction(FExecuteAction::CreateRaw(this, &FMutableSidekicksPluginEditorModule::OpenEditorWindow)));
 	}
 
 	void OpenEditorTab()
@@ -294,20 +286,6 @@ private:
 		}
 
 		ScheduleOpenEditorTab(Coi, AssetEditorInstance);
-	}
-
-	void OpenEditorWindow()
-	{
-		TSharedRef<SWindow> EditorWindow = SNew(SWindow)
-			.Title(LOCTEXT("SidekicksMutableWindowTitle", "Sidekicks Mutable"))
-			.ClientSize(FVector2D(1280.0f, 900.0f))
-			.SupportsMaximize(true)
-			.SupportsMinimize(true)
-			[
-				SNew(SSDMutableEditorWidget)
-			];
-
-		FSlateApplication::Get().AddWindow(EditorWindow);
 	}
 
 	FDelegateHandle AssetOpenedHandle;

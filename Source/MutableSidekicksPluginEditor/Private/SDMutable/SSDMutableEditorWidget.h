@@ -82,7 +82,10 @@ private:
 	void SelectPack(TSharedPtr<FSDMutablePackListItem> PackItem);
 	void SelectSlot(TSharedPtr<FSDMutableSlotListItem> SlotItem);
 	void ClearSlot(TSharedPtr<FSDMutableSlotListItem> SlotItem);
+	void ClearAllSlots();
 	void ApplyPart(TSharedPtr<FSDMutablePartListItem> PartItem);
+	void SelectAdjacentPartOption(int32 Direction);
+	bool CanSelectAdjacentPartOption(int32 Direction) const;
 	void OnPartComboSelectionChanged(TSharedPtr<FSDMutablePartListItem> PartItem, ESelectInfo::Type SelectInfo);
 	void OnPartListSelectionChanged(TSharedPtr<FSDMutablePartListItem> PartItem, ESelectInfo::Type SelectInfo);
 	float GetBodyShapeValue(FName ParameterName) const;

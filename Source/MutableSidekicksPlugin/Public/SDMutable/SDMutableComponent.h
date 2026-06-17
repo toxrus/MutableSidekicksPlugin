@@ -2,13 +2,16 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "SDMutableColorPreset.h"
 #include "SDMutableTypes.h"
 #include "SDMutableComponent.generated.h"
 
 class UCustomizableObjectInstance;
 class USDMutableCatalog;
+class USDMutableSidekickRecipeAsset;
 class USkeletalMesh;
 class UTexture;
+class UTexture2D;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSDMutableRecipeChanged, const FSDMutableSidekickRecipe&, Recipe);
 
@@ -26,8 +29,26 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="SDMutable")
 	TObjectPtr<UCustomizableObjectInstance> CustomizableObjectInstance;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Preset")
+	TSoftObjectPtr<USDMutableSidekickRecipeAsset> SourceRecipeAsset;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Preset")
+	TSoftObjectPtr<UCustomizableObjectInstance> TemplateCustomizableObjectInstance;
+
+	UPROPERTY(VisibleAnywhere, Transient, BlueprintReadOnly, Category="SDMutable|Runtime")
+	TObjectPtr<UCustomizableObjectInstance> RuntimeCustomizableObjectInstance;
+
+	UPROPERTY(VisibleAnywhere, Transient, DuplicateTransient, BlueprintReadOnly, Category="SDMutable|Runtime")
+	TObjectPtr<UCustomizableObjectInstance> EditorCustomizableObjectInstance;
+
+	UPROPERTY(VisibleAnywhere, Transient, BlueprintReadOnly, Category="SDMutable|Runtime")
+	TObjectPtr<UTexture2D> RuntimeColorTexture;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Local State")
 	FSDMutableSidekickRecipe Recipe;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Local State")
+	FSDMutableColorPalette ColorPalette;
 
 	UPROPERTY(BlueprintAssignable, Category="SDMutable")
 	FSDMutableRecipeChanged OnRecipeChanged;
@@ -39,7 +60,16 @@ public:
 	bool SynchronizeCustomizableObjectInstanceFromOwner();
 
 	UFUNCTION(BlueprintCallable, Category="SDMutable")
+	bool CopyFromRecipeAsset(bool bApplyToMutable = true);
+
+	UFUNCTION(BlueprintCallable, Category="SDMutable")
+	bool EnsureRuntimeCustomizableObjectInstance();
+
+	UFUNCTION(BlueprintCallable, Category="SDMutable")
 	void SetRecipe(const FSDMutableSidekickRecipe& InRecipe, bool bApplyToMutable = true);
+
+	UFUNCTION(BlueprintCallable, Category="SDMutable")
+	void SetColorPalette(const FSDMutableColorPalette& InColorPalette, bool bApplyToMutable = true);
 
 	UFUNCTION(BlueprintCallable, Category="SDMutable")
 	void ApplyRecipeToMutable();
@@ -73,10 +103,13 @@ public:
 
 private:
 	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 #if WITH_EDITOR
 	virtual void PostLoad() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	void RefreshEditorPreviewFromRecipe();
 #endif
 
 	bool ApplyPartToMutable(const FSDMutablePartSelection& Selection) const;
@@ -86,4 +119,11 @@ private:
 	bool ApplySkeletalMeshParameter(FName ParameterName, USkeletalMesh* Value) const;
 	bool ApplyIntOptionParameter(FName ParameterName, FName OptionId) const;
 	bool SynchronizeCustomizableObjectInstanceFromOwnerInternal(bool bLogErrors);
+	bool EnsureEditorCustomizableObjectInstance(bool bLogErrors = true);
+	bool IsRuntimeWorld() const;
+	UCustomizableObjectInstance* GetActiveCustomizableObjectInstance() const;
+
+#if WITH_EDITORONLY_DATA
+	bool bSuppressEditorPreviewDirty = false;
+#endif
 };

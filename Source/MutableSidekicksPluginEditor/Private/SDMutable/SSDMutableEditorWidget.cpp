@@ -39,6 +39,7 @@
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SMenuAnchor.h"
+#include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Layout/SExpandableArea.h"
 #include "Widgets/Layout/SBorder.h"
@@ -753,9 +754,32 @@ void SSDMutableEditorWidget::Construct(const FArguments& InArgs)
 							.AutoHeight()
 							.Padding(0.0f, 0.0f, 0.0f, 6.0f)
 							[
-								SNew(STextBlock)
-								.Text(LOCTEXT("SlotPanelTitle", "Slots"))
-								.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot()
+								.FillWidth(1.0f)
+								.VAlign(VAlign_Center)
+								[
+									SNew(STextBlock)
+									.Text(LOCTEXT("SlotPanelTitle", "Slots"))
+									.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+								]
+								+ SHorizontalBox::Slot()
+								.AutoWidth()
+								[
+									SNew(SButton)
+									.ContentPadding(FMargin(6.0f, 2.0f))
+									.Text(LOCTEXT("ClearAllSlotsButton", "Clear All"))
+									.ToolTipText(LOCTEXT("ClearAllSlotsTooltip", "Set all mesh types to None."))
+									.IsEnabled_Lambda([this]()
+									{
+										return !SlotItems.IsEmpty() && LoadedCatalog.IsValid() && (TargetComponent.IsValid() || TargetCustomizableObjectInstance.IsValid());
+									})
+									.OnClicked_Lambda([this]()
+									{
+										ClearAllSlots();
+										return FReply::Handled();
+									})
+								]
 							]
 							+ SVerticalBox::Slot()
 							[
@@ -786,43 +810,100 @@ void SSDMutableEditorWidget::Construct(const FArguments& InArgs)
 						.AutoHeight()
 						.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 						[
-							SAssignNew(PartMenuAnchor, SMenuAnchor)
-							.Placement(MenuPlacement_BelowAnchor)
-							.OnGetMenuContent(this, &SSDMutableEditorWidget::BuildPartDropdownMenuWidget)
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.Padding(0.0f, 0.0f, 4.0f, 0.0f)
 							[
 								SNew(SButton)
-								.HAlign(HAlign_Fill)
+								.Text(LOCTEXT("PreviousPartOption", "<"))
+								.ToolTipText(LOCTEXT("PreviousPartOptionTooltip", "Select the previous mesh option in the current filtered list."))
+								.IsEnabled_Lambda([this]()
+								{
+									return CanSelectAdjacentPartOption(-1);
+								})
 								.OnClicked_Lambda([this]()
 								{
-									if (PartMenuAnchor.IsValid())
-									{
-										const bool bOpenMenu = !PartMenuAnchor->IsOpen();
-										PartMenuAnchor->SetIsOpen(bOpenMenu);
-										if (bOpenMenu && PartSearchTextBox.IsValid())
-										{
-											FSlateApplication::Get().SetKeyboardFocus(PartSearchTextBox);
-											PartSearchTextBox->SelectAllText();
-										}
-									}
+									SelectAdjacentPartOption(-1);
 									return FReply::Handled();
 								})
+							]
+							+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.Padding(0.0f, 0.0f, 4.0f, 0.0f)
+							[
+								SNew(SButton)
+								.Text(LOCTEXT("NextPartOption", ">"))
+								.ToolTipText(LOCTEXT("NextPartOptionTooltip", "Select the next mesh option in the current filtered list."))
+								.IsEnabled_Lambda([this]()
+								{
+									return CanSelectAdjacentPartOption(1);
+								})
+								.OnClicked_Lambda([this]()
+								{
+									SelectAdjacentPartOption(1);
+									return FReply::Handled();
+								})
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							[
+								SAssignNew(PartMenuAnchor, SMenuAnchor)
+								.Placement(MenuPlacement_BelowAnchor)
+								.OnGetMenuContent(this, &SSDMutableEditorWidget::BuildPartDropdownMenuWidget)
 								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot()
-									.FillWidth(1.0f)
+									SNew(SButton)
+									.HAlign(HAlign_Fill)
+									.OnClicked_Lambda([this]()
+									{
+										if (PartMenuAnchor.IsValid())
+										{
+											const bool bOpenMenu = !PartMenuAnchor->IsOpen();
+											PartMenuAnchor->SetIsOpen(bOpenMenu);
+											if (bOpenMenu && PartSearchTextBox.IsValid())
+											{
+												FSlateApplication::Get().SetKeyboardFocus(PartSearchTextBox);
+												PartSearchTextBox->SelectAllText();
+											}
+										}
+										return FReply::Handled();
+									})
 									[
-										SNew(STextBlock)
-										.Text(this, &SSDMutableEditorWidget::GetSelectedPartText)
-										.AutoWrapText(true)
-									]
-									+ SHorizontalBox::Slot()
-									.AutoWidth()
-									.Padding(8.0f, 0.0f, 0.0f, 0.0f)
-									[
-										SNew(STextBlock)
-										.Text(LOCTEXT("PartDropdownArrow", "v"))
+										SNew(SHorizontalBox)
+										+ SHorizontalBox::Slot()
+										.FillWidth(1.0f)
+										[
+											SNew(STextBlock)
+											.Text(this, &SSDMutableEditorWidget::GetSelectedPartText)
+											.AutoWrapText(true)
+										]
+										+ SHorizontalBox::Slot()
+										.AutoWidth()
+										.Padding(8.0f, 0.0f, 0.0f, 0.0f)
+										[
+											SNew(STextBlock)
+											.Text(LOCTEXT("PartDropdownArrow", "v"))
+										]
 									]
 								]
+							]
+							+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.Padding(4.0f, 0.0f, 0.0f, 0.0f)
+							[
+								SNew(SButton)
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.Text(LOCTEXT("ClearCurrentPartOption", "X"))
+								.ToolTipText(LOCTEXT("ClearCurrentPartOptionTooltip", "Set the current mesh option to None."))
+								.IsEnabled_Lambda([this]()
+								{
+									return SelectedSlotItem.IsValid() && LoadedCatalog.IsValid() && (TargetComponent.IsValid() || TargetCustomizableObjectInstance.IsValid());
+								})
+								.OnClicked_Lambda([this]()
+								{
+									ClearSlot(SelectedSlotItem);
+									return FReply::Handled();
+								})
 							]
 						]
 						+ SVerticalBox::Slot()
@@ -909,21 +990,7 @@ void SSDMutableEditorWidget::Construct(const FArguments& InArgs)
 
 void SSDMutableEditorWidget::ResetPreviewTargetToDefaults()
 {
-	USDMutableComponent* Component = TargetComponent.Get();
-	if (!Component)
-	{
-		return;
-	}
-
-	UCustomizableObjectInstance* Instance = Component->CustomizableObjectInstance.Get();
-	if (!Instance)
-	{
-		return;
-	}
-
-	Instance->SetDefaultValues();
-	Instance->UpdateSkeletalMeshAsync(false, false);
-	Instance->PostEditChange();
+	PreviewColorTexture.Reset();
 }
 
 void SSDMutableEditorWidget::RefreshCatalog()
@@ -999,6 +1066,9 @@ void SSDMutableEditorWidget::RefreshTargetFromSelection()
 
 		TargetComponent = Component;
 		Component->SynchronizeCustomizableObjectInstanceFromOwner();
+		EditorRecipe = Component->Recipe;
+		EditorColorPalette = Component->ColorPalette;
+		EditorColorPalette.EnsureColorSlotCount();
 
 		if (!Component->Catalog && LoadedCatalog.IsValid())
 		{
@@ -1009,8 +1079,10 @@ void SSDMutableEditorWidget::RefreshTargetFromSelection()
 			Actor->MarkPackageDirty();
 		}
 
+		Component->ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
+
 		TargetStatus = FString::Printf(
-			TEXT("Target: %s / %s. COI=%s. Preview starts from Mutable defaults."),
+			TEXT("Target: %s / %s. COI=%s. Preview uses this actor's SD component recipe."),
 			*Actor->GetName(),
 			*Component->GetName(),
 			*GetNameSafe(Component->CustomizableObjectInstance.Get()));
@@ -1560,8 +1632,8 @@ void SSDMutableEditorWidget::RebuildPartListWidget()
 		.Padding(0.0f, 0.0f, 10.0f, 0.0f)
 		[
 			SNew(SBox)
-			.WidthOverride(64.0f)
-			.HeightOverride(64.0f)
+			.WidthOverride(256.0f)
+			.HeightOverride(256.0f)
 			[
 				MakeThumbnailWidget(SelectedPartItem->ThumbnailBrush)
 			]
@@ -1659,12 +1731,21 @@ TSharedRef<SWidget> SSDMutableEditorWidget::BuildMorphControlsWidget()
 			.Padding(8.0f, 0.0f, 0.0f, 0.0f)
 			[
 				SNew(SBox)
-				.WidthOverride(36.0f)
+				.WidthOverride(58.0f)
 				[
-					SNew(STextBlock)
-					.Text_Lambda([this, ParameterName]()
+					SNew(SNumericEntryBox<float>)
+					.MinValue(0.0f)
+					.MaxValue(1.0f)
+					.MinSliderValue(0.0f)
+					.MaxSliderValue(1.0f)
+					.AllowSpin(false)
+					.Value_Lambda([this, ParameterName]() -> TOptional<float>
 					{
-						return FText::AsNumber(GetBodyShapeValue(ParameterName), &FNumberFormattingOptions::DefaultNoGrouping());
+						return GetBodyShapeValue(ParameterName);
+					})
+					.OnValueCommitted_Lambda([this, ParameterName](const float Value, ETextCommit::Type)
+					{
+						SetBodyShapeValue(ParameterName, Value);
 					})
 				]
 			];
@@ -1878,12 +1959,21 @@ TSharedRef<SWidget> SSDMutableEditorWidget::BuildMaterialScalarControlsWidget()
 			.Padding(8.0f, 0.0f, 0.0f, 0.0f)
 			[
 				SNew(SBox)
-				.WidthOverride(36.0f)
+				.WidthOverride(58.0f)
 				[
-					SNew(STextBlock)
-					.Text_Lambda([this, ParameterName]()
+					SNew(SNumericEntryBox<float>)
+					.MinValue(0.0f)
+					.MaxValue(1.0f)
+					.MinSliderValue(0.0f)
+					.MaxSliderValue(1.0f)
+					.AllowSpin(false)
+					.Value_Lambda([this, ParameterName]() -> TOptional<float>
 					{
-						return FText::AsNumber(GetMaterialScalarValue(ParameterName), &FNumberFormattingOptions::DefaultNoGrouping());
+						return GetMaterialScalarValue(ParameterName);
+					})
+					.OnValueCommitted_Lambda([this, ParameterName](const float Value, ETextCommit::Type)
+					{
+						SetMaterialScalarValue(ParameterName, Value);
 					})
 				]
 			];
@@ -2314,6 +2404,112 @@ void SSDMutableEditorWidget::ClearSlot(TSharedPtr<FSDMutableSlotListItem> SlotIt
 	RefreshPartSelectionWidgets();
 }
 
+void SSDMutableEditorWidget::ClearAllSlots()
+{
+	USDMutableComponent* Component = TargetComponent.Get();
+	USDMutableCatalog* Catalog = LoadedCatalog.Get();
+	if ((!Component && !TargetCustomizableObjectInstance.IsValid()) || !Catalog || SlotItems.IsEmpty())
+	{
+		TargetStatus = TEXT("Cannot clear all mesh types: missing target, catalog, or slots.");
+		return;
+	}
+
+	if (Component)
+	{
+		if (!Component->Catalog)
+		{
+			Component->Catalog = Catalog;
+		}
+
+		for (const TSharedPtr<FSDMutableSlotListItem>& SlotItem : SlotItems)
+		{
+			if (SlotItem.IsValid())
+			{
+				Component->SetPart(SlotItem->Slot, NAME_None, false);
+			}
+		}
+		Component->UpdateMutableInstance(false, false);
+	}
+	else
+	{
+		for (const TSharedPtr<FSDMutableSlotListItem>& SlotItem : SlotItems)
+		{
+			if (!SlotItem.IsValid())
+			{
+				continue;
+			}
+
+			bool bFoundExistingSelection = false;
+			for (FSDMutablePartSelection& Selection : EditorRecipe.Parts)
+			{
+				if (Selection.Slot == SlotItem->Slot)
+				{
+					Selection.OptionId = NAME_None;
+					bFoundExistingSelection = true;
+					break;
+				}
+			}
+			if (!bFoundExistingSelection)
+			{
+				FSDMutablePartSelection& NewSelection = EditorRecipe.Parts.AddDefaulted_GetRef();
+				NewSelection.Slot = SlotItem->Slot;
+				NewSelection.OptionId = NAME_None;
+			}
+		}
+		if (!CommitEditorStateToRecipeAsset(false))
+		{
+			ApplyEditorRecipeToTargetCoi();
+		}
+	}
+
+	TargetStatus = FString::Printf(
+		TEXT("Cleared all mesh types to None on %s."),
+		Component ? *GetNameSafe(Component) : *GetNameSafe(TargetCustomizableObjectInstance.Get()));
+
+	RebuildPartItems();
+	RebuildSlotListWidget();
+	RefreshPartSelectionWidgets();
+}
+
+bool SSDMutableEditorWidget::CanSelectAdjacentPartOption(const int32 Direction) const
+{
+	if (Direction == 0 || PartItems.Num() <= 1)
+	{
+		return false;
+	}
+
+	const int32 CurrentIndex = PartItems.IndexOfByKey(SelectedPartItem);
+	if (CurrentIndex == INDEX_NONE)
+	{
+		return !PartItems.IsEmpty();
+	}
+
+	const int32 TargetIndex = CurrentIndex + Direction;
+	return PartItems.IsValidIndex(TargetIndex);
+}
+
+void SSDMutableEditorWidget::SelectAdjacentPartOption(const int32 Direction)
+{
+	if (Direction == 0 || PartItems.IsEmpty())
+	{
+		return;
+	}
+
+	int32 CurrentIndex = PartItems.IndexOfByKey(SelectedPartItem);
+	if (CurrentIndex == INDEX_NONE)
+	{
+		CurrentIndex = Direction > 0 ? -1 : PartItems.Num();
+	}
+
+	const int32 TargetIndex = CurrentIndex + Direction;
+	if (!PartItems.IsValidIndex(TargetIndex))
+	{
+		return;
+	}
+
+	ApplyPart(PartItems[TargetIndex]);
+}
+
 void SSDMutableEditorWidget::OnPartComboSelectionChanged(TSharedPtr<FSDMutablePartListItem> PartItem, ESelectInfo::Type SelectInfo)
 {
 	SelectedPartItem = PartItem;
@@ -2411,7 +2607,23 @@ void SSDMutableEditorWidget::ApplyColorPaletteToTarget()
 		return;
 	}
 
-	UObject* TextureOuter = Component ? static_cast<UObject*>(Component) : static_cast<UObject*>(TargetCustomizableObjectInstance.Get());
+	if (Component)
+	{
+		Component->SetColorPalette(EditorColorPalette, true);
+		Component->UpdateMutableInstance(false, false);
+
+		ColorStatus = FString::Printf(
+			TEXT("Applied transient color texture from 256 palette slots to %s."),
+			*GetNameSafe(Component));
+		return;
+	}
+
+	UObject* TextureOuter = TargetCustomizableObjectInstance.Get();
+	if (!TextureOuter)
+	{
+		TextureOuter = GetTransientPackage();
+	}
+
 	PreviewColorTexture.Reset(USDMutableColorPreset::BuildTransientColorTextureFromPalette(EditorColorPalette, TextureOuter));
 	if (!PreviewColorTexture.IsValid())
 	{
@@ -2419,22 +2631,12 @@ void SSDMutableEditorWidget::ApplyColorPaletteToTarget()
 		return;
 	}
 
-	if (Component)
-	{
-		FSDMutableMaterialSettings Material = Component->Recipe.Material;
-		Material.BaseColor = TSoftObjectPtr<UTexture>(PreviewColorTexture.Get());
-		Component->SetMaterialSettings(Material, true);
-		Component->UpdateMutableInstance(false, false);
-	}
-	else
-	{
-		EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(PreviewColorTexture.Get());
-		ApplyEditorRecipeToTargetCoi();
-	}
+	EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(PreviewColorTexture.Get());
+	ApplyEditorRecipeToTargetCoi();
 
 	ColorStatus = FString::Printf(
 		TEXT("Applied transient color texture from 256 palette slots to %s."),
-		Component ? *GetNameSafe(Component) : *GetNameSafe(TargetCustomizableObjectInstance.Get()));
+		*GetNameSafe(TargetCustomizableObjectInstance.Get()));
 }
 
 bool SSDMutableEditorWidget::IsTargetCoiReadyForRecipeApply(UCustomizableObjectInstance& Coi)
@@ -2634,7 +2836,7 @@ FSDMutableRecipeJsonExchange SSDMutableEditorWidget::MakeCurrentRecipeJsonExchan
 		? RecipeAsset->GetName()
 		: MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : (Coi ? Coi->GetName() : TEXT("SidekickPreset")));
 	Exchange.Recipe = Component ? Component->Recipe : EditorRecipe;
-	Exchange.ColorPalette = EditorColorPalette;
+	Exchange.ColorPalette = Component ? Component->ColorPalette : EditorColorPalette;
 	Exchange.ColorPalette.EnsureColorSlotCount();
 
 	if (const UTexture* BaseColor = Exchange.Recipe.Material.BaseColor.LoadSynchronous())
@@ -2659,30 +2861,38 @@ void SSDMutableEditorWidget::ApplyRecipeJsonExchangeToCurrentTarget(const FSDMut
 	EditorColorPalette.EnsureColorSlotCount();
 
 	USDMutableComponent* Component = TargetComponent.Get();
-	UObject* TextureOuter = Component ? static_cast<UObject*>(Component) : static_cast<UObject*>(TargetCustomizableObjectInstance.Get());
-	if (!TextureOuter)
-	{
-		TextureOuter = GetTransientPackage();
-	}
-
-	PreviewColorTexture.Reset(USDMutableColorPreset::BuildTransientColorTextureFromPalette(EditorColorPalette, TextureOuter));
-	if (PreviewColorTexture.IsValid())
-	{
-		EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(PreviewColorTexture.Get());
-	}
-	else if (!Exchange.ColorTexturePath.IsEmpty())
-	{
-		EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(FSoftObjectPath(Exchange.ColorTexturePath));
-	}
-
 	if (Component)
 	{
-		Component->SetRecipe(EditorRecipe, false);
-		Component->ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
+		EditorRecipe.Material.BaseColor.Reset();
 	}
-	else if (TargetRecipeAsset.IsValid())
+	else
+	{
+		UObject* TextureOuter = TargetCustomizableObjectInstance.Get();
+		if (!TextureOuter)
+		{
+			TextureOuter = GetTransientPackage();
+		}
+
+		PreviewColorTexture.Reset(USDMutableColorPreset::BuildTransientColorTextureFromPalette(EditorColorPalette, TextureOuter));
+		if (PreviewColorTexture.IsValid())
+		{
+			EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(PreviewColorTexture.Get());
+		}
+		else if (!Exchange.ColorTexturePath.IsEmpty())
+		{
+			EditorRecipe.Material.BaseColor = TSoftObjectPtr<UTexture>(FSoftObjectPath(Exchange.ColorTexturePath));
+		}
+	}
+
+	if (TargetRecipeAsset.IsValid())
 	{
 		CommitEditorStateToRecipeAsset(true);
+	}
+	else if (Component)
+	{
+		Component->SetRecipe(EditorRecipe, false);
+		Component->SetColorPalette(EditorColorPalette, false);
+		Component->ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
 	}
 	else if (TargetCustomizableObjectInstance.IsValid())
 	{
@@ -2806,6 +3016,8 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	}
 
 	EditorColorPalette.EnsureColorSlotCount();
+	FSDMutableColorPalette SavedColorPalette = Component ? Component->ColorPalette : EditorColorPalette;
+	SavedColorPalette.EnsureColorSlotCount();
 
 	const AActor* Owner = Component ? Component->GetOwner() : nullptr;
 	const FString SourceName = MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : SourceCoi->GetName());
@@ -2831,7 +3043,7 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	const FString CoiPackagePath = MakePackageName(TargetPackagePath, CoiAssetName);
 
 	USDMutableColorPreset* TemporaryColorPreset = NewObject<USDMutableColorPreset>(GetTransientPackage());
-	TemporaryColorPreset->Palette = EditorColorPalette;
+	TemporaryColorPreset->Palette = SavedColorPalette;
 	UTexture2D* SavedTexture = USDMutableTextureBuilderLibrary::BuildSidekicksColorTextureAsset(
 		TemporaryColorPreset,
 		TargetPackagePath,
@@ -2899,7 +3111,7 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 
 	RecipeAsset->Modify();
 	RecipeAsset->Recipe = SavedRecipe;
-	RecipeAsset->ColorPalette = EditorColorPalette;
+	RecipeAsset->ColorPalette = SavedColorPalette;
 	RecipeAsset->ColorTexture = TSoftObjectPtr<UTexture2D>(SavedTexture);
 	RecipeAsset->CustomizableObjectInstance = TSoftObjectPtr<UCustomizableObjectInstance>(SavedCoi);
 
@@ -2914,7 +3126,10 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	if (Component)
 	{
 		SetActorCustomizableObjectInstance(Component->GetOwner(), SavedCoi);
-		Component->SynchronizeCustomizableObjectInstanceFromOwner();
+		Component->SetCustomizableObjectInstance(SavedCoi);
+		Component->SourceRecipeAsset = TSoftObjectPtr<USDMutableSidekickRecipeAsset>(RecipeAsset);
+		Component->TemplateCustomizableObjectInstance = TSoftObjectPtr<UCustomizableObjectInstance>(SavedCoi);
+		Component->SetColorPalette(SavedColorPalette, false);
 		Component->SetRecipe(SavedRecipe, true);
 		Component->UpdateMutableInstance(false, false);
 	}

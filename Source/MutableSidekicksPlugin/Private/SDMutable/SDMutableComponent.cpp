@@ -1,10 +1,15 @@
 #include "SDMutable/SDMutableComponent.h"
 
 #include "SDMutable/SDMutableCatalog.h"
+#include "SDMutable/SDMutableDeveloperSettings.h"
 #include "SDMutable/SDMutableParameters.h"
+#include "SDMutable/SDMutableSidekickRecipeAsset.h"
 #include "Animation/Skeleton.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/Texture2D.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "MuCO/CustomizableObject.h"
 #include "MuCO/CustomizableObjectInstance.h"
 #include "MuCO/CustomizableSkeletalComponent.h"
 #include "UObject/UnrealType.h"
@@ -119,19 +124,40 @@ void USDMutableComponent::OnRegister()
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
+#if WITH_EDITOR
+		RefreshEditorPreviewFromRecipe();
+#endif
 	}
+}
+
+void USDMutableComponent::OnUnregister()
+{
+	RuntimeColorTexture = nullptr;
+	EditorCustomizableObjectInstance = nullptr;
+	Super::OnUnregister();
 }
 
 void USDMutableComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	SynchronizeCustomizableObjectInstanceFromOwner();
+	if (EnsureRuntimeCustomizableObjectInstance())
+	{
+		ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
+	}
+}
+
+void USDMutableComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	RuntimeColorTexture = nullptr;
+	Super::EndPlay(EndPlayReason);
 }
 
 #if WITH_EDITOR
 void USDMutableComponent::PostLoad()
 {
 	Super::PostLoad();
+	EditorCustomizableObjectInstance = nullptr;
+	RuntimeColorTexture = nullptr;
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
@@ -144,7 +170,19 @@ void USDMutableComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
+		RefreshEditorPreviewFromRecipe();
 	}
+}
+
+void USDMutableComponent::RefreshEditorPreviewFromRecipe()
+{
+	if (HasAnyFlags(RF_ClassDefaultObject) || IsRuntimeWorld())
+	{
+		return;
+	}
+
+	TGuardValue<bool> SuppressEditorPreviewDirty(bSuppressEditorPreviewDirty, true);
+	ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
 }
 #endif
 
@@ -155,6 +193,12 @@ void USDMutableComponent::SetCustomizableObjectInstance(UCustomizableObjectInsta
 	ModifyObjectForEditor(GetOwner());
 #endif
 	CustomizableObjectInstance = InInstance;
+	EditorCustomizableObjectInstance = nullptr;
+	RuntimeCustomizableObjectInstance = nullptr;
+	if (!IsRuntimeWorld())
+	{
+		TemplateCustomizableObjectInstance = InInstance;
+	}
 #if WITH_EDITOR
 	MarkObjectDirtyForEditor(this);
 	MarkObjectDirtyForEditor(GetOwner());
@@ -168,6 +212,11 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwner()
 
 bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal(const bool bLogErrors)
 {
+	if (IsRuntimeWorld() && RuntimeCustomizableObjectInstance)
+	{
+		return true;
+	}
+
 	AActor* Owner = GetOwner();
 	if (!Owner)
 	{
@@ -191,6 +240,29 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 	}
 
 	UCustomizableObjectInstance* ActorInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
+	if (!IsRuntimeWorld() && EditorCustomizableObjectInstance)
+	{
+		if (ActorInstance != EditorCustomizableObjectInstance)
+		{
+#if WITH_EDITOR
+			if (!bSuppressEditorPreviewDirty)
+			{
+				ModifyObjectForEditor(MutableSkeletalComponent);
+			}
+#endif
+			MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
+			ActorInstance = EditorCustomizableObjectInstance;
+#if WITH_EDITOR
+			if (!bSuppressEditorPreviewDirty)
+			{
+				MarkObjectDirtyForEditor(MutableSkeletalComponent);
+			}
+#endif
+		}
+		CustomizableObjectInstance = EditorCustomizableObjectInstance;
+		return true;
+	}
+
 	if (!ActorInstance)
 	{
 		if (bLogErrors)
@@ -213,6 +285,10 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 	ModifyObjectForEditor(Owner);
 #endif
 	CustomizableObjectInstance = ActorInstance;
+	if (!IsRuntimeWorld())
+	{
+		TemplateCustomizableObjectInstance = ActorInstance;
+	}
 #if WITH_EDITOR
 	MarkObjectDirtyForEditor(this);
 	MarkObjectDirtyForEditor(Owner);
@@ -222,6 +298,227 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 		*GetNameSafe(Owner),
 		*GetNameSafe(MutableSkeletalComponent),
 		*GetNameSafe(CustomizableObjectInstance));
+	return true;
+}
+
+bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLogErrors)
+{
+	if (IsRuntimeWorld())
+	{
+		return EnsureRuntimeCustomizableObjectInstance();
+	}
+
+	if (EditorCustomizableObjectInstance)
+	{
+		return SynchronizeCustomizableObjectInstanceFromOwnerInternal(bLogErrors);
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s: component has no owner actor."), *GetNameSafe(this));
+		}
+		return false;
+	}
+
+	UCustomizableSkeletalComponent* MutableSkeletalComponent = FindMutableSkeletalComponent(Owner);
+	if (!MutableSkeletalComponent)
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s on actor %s: no UCustomizableSkeletalComponent exists on the actor."),
+				*GetNameSafe(this),
+				*GetNameSafe(Owner));
+		}
+		return false;
+	}
+
+	UCustomizableObjectInstance* TemplateInstance = CustomizableObjectInstance.Get();
+	if (!TemplateInstance)
+	{
+		TemplateInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
+	}
+	if (!TemplateInstance)
+	{
+		TemplateInstance = TemplateCustomizableObjectInstance.LoadSynchronous();
+	}
+	if (!TemplateInstance)
+	{
+		if (USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous())
+		{
+			TemplateInstance = RecipeAsset->CustomizableObjectInstance.LoadSynchronous();
+		}
+	}
+
+	if (TemplateInstance)
+	{
+		EditorCustomizableObjectInstance = TemplateInstance->CloneStatic(this);
+		if (!EditorCustomizableObjectInstance)
+		{
+			EditorCustomizableObjectInstance = DuplicateObject<UCustomizableObjectInstance>(TemplateInstance, this);
+		}
+	}
+	else
+	{
+		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
+		UCustomizableObject* SidekicksCustomizableObject = Settings ? Settings->SidekicksCustomizableObject.LoadSynchronous() : nullptr;
+		if (SidekicksCustomizableObject)
+		{
+			EditorCustomizableObjectInstance = SidekicksCustomizableObject->CreateInstance();
+		}
+	}
+
+	if (!EditorCustomizableObjectInstance)
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s on actor %s: no template COI or configured Sidekicks Customizable Object was available."),
+				*GetNameSafe(this),
+				*GetNameSafe(Owner));
+		}
+		return false;
+	}
+
+	EditorCustomizableObjectInstance->SetFlags(RF_Transient);
+#if WITH_EDITOR
+	if (!bSuppressEditorPreviewDirty)
+	{
+		ModifyObjectForEditor(this);
+		ModifyObjectForEditor(Owner);
+		ModifyObjectForEditor(MutableSkeletalComponent);
+	}
+#endif
+	MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
+	CustomizableObjectInstance = EditorCustomizableObjectInstance;
+#if WITH_EDITOR
+	if (!bSuppressEditorPreviewDirty)
+	{
+		MarkObjectDirtyForEditor(this);
+		MarkObjectDirtyForEditor(Owner);
+		MarkObjectDirtyForEditor(MutableSkeletalComponent);
+	}
+#endif
+	UE_LOG(LogSDMutable, Log, TEXT("Created private editor COI %s for actor %s from template %s."),
+		*GetNameSafe(EditorCustomizableObjectInstance),
+		*GetNameSafe(Owner),
+		*GetNameSafe(TemplateInstance));
+	return true;
+}
+
+bool USDMutableComponent::CopyFromRecipeAsset(const bool bApplyToMutable)
+{
+	USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous();
+	if (!RecipeAsset)
+	{
+		UE_LOG(LogSDMutable, Warning, TEXT("Cannot copy Sidekicks recipe asset for %s: SourceRecipeAsset is not set or failed to load."),
+			*GetNameSafe(this));
+		return false;
+	}
+
+#if WITH_EDITOR
+	ModifyObjectForEditor(this);
+	ModifyObjectForEditor(GetOwner());
+#endif
+	Recipe = RecipeAsset->Recipe;
+	ColorPalette = RecipeAsset->ColorPalette;
+	if (!RecipeAsset->CustomizableObjectInstance.IsNull())
+	{
+		TemplateCustomizableObjectInstance = RecipeAsset->CustomizableObjectInstance;
+	}
+	OnRecipeChanged.Broadcast(Recipe);
+
+	if (bApplyToMutable)
+	{
+		ApplyRecipeToMutable();
+	}
+#if WITH_EDITOR
+	MarkObjectDirtyForEditor(this);
+	MarkObjectDirtyForEditor(GetOwner());
+#endif
+	return true;
+}
+
+bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
+{
+	if (!IsRuntimeWorld())
+	{
+		return SynchronizeCustomizableObjectInstanceFromOwner();
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s: component has no owner actor."), *GetNameSafe(this));
+		return false;
+	}
+
+	UCustomizableSkeletalComponent* MutableSkeletalComponent = FindMutableSkeletalComponent(Owner);
+	if (!MutableSkeletalComponent)
+	{
+		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s on actor %s: no UCustomizableSkeletalComponent exists on the actor."),
+			*GetNameSafe(this),
+			*GetNameSafe(Owner));
+		return false;
+	}
+
+	if (RuntimeCustomizableObjectInstance)
+	{
+		if (MutableSkeletalComponent->GetCustomizableObjectInstance() != RuntimeCustomizableObjectInstance)
+		{
+			MutableSkeletalComponent->SetCustomizableObjectInstance(RuntimeCustomizableObjectInstance);
+		}
+		CustomizableObjectInstance = RuntimeCustomizableObjectInstance;
+		return true;
+	}
+
+	UCustomizableObjectInstance* TemplateInstance = TemplateCustomizableObjectInstance.LoadSynchronous();
+	if (!TemplateInstance)
+	{
+		TemplateInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
+	}
+	if (!TemplateInstance)
+	{
+		if (USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous())
+		{
+			TemplateInstance = RecipeAsset->CustomizableObjectInstance.LoadSynchronous();
+		}
+	}
+
+	if (TemplateInstance)
+	{
+		RuntimeCustomizableObjectInstance = TemplateInstance->CloneStatic(this);
+		if (!RuntimeCustomizableObjectInstance)
+		{
+			RuntimeCustomizableObjectInstance = DuplicateObject<UCustomizableObjectInstance>(TemplateInstance, this);
+		}
+	}
+	else
+	{
+		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
+		UCustomizableObject* SidekicksCustomizableObject = Settings ? Settings->SidekicksCustomizableObject.LoadSynchronous() : nullptr;
+		if (SidekicksCustomizableObject)
+		{
+			RuntimeCustomizableObjectInstance = SidekicksCustomizableObject->CreateInstance();
+		}
+	}
+
+	if (!RuntimeCustomizableObjectInstance)
+	{
+		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s on actor %s: no template COI or configured Sidekicks Customizable Object was available."),
+			*GetNameSafe(this),
+			*GetNameSafe(Owner));
+		return false;
+	}
+
+	RuntimeCustomizableObjectInstance->SetFlags(RF_Transient);
+	MutableSkeletalComponent->SetCustomizableObjectInstance(RuntimeCustomizableObjectInstance);
+	CustomizableObjectInstance = RuntimeCustomizableObjectInstance;
+	UE_LOG(LogSDMutable, Log, TEXT("Created private runtime COI %s for actor %s from template %s."),
+		*GetNameSafe(RuntimeCustomizableObjectInstance),
+		*GetNameSafe(Owner),
+		*GetNameSafe(TemplateInstance));
 	return true;
 }
 
@@ -244,11 +541,36 @@ void USDMutableComponent::SetRecipe(const FSDMutableSidekickRecipe& InRecipe, co
 #endif
 }
 
+void USDMutableComponent::SetColorPalette(const FSDMutableColorPalette& InColorPalette, const bool bApplyToMutable)
+{
+#if WITH_EDITOR
+	ModifyObjectForEditor(this);
+	ModifyObjectForEditor(GetOwner());
+#endif
+	ColorPalette = InColorPalette;
+	if (bApplyToMutable)
+	{
+		ApplyRecipeToMutable();
+	}
+#if WITH_EDITOR
+	MarkObjectDirtyForEditor(this);
+	MarkObjectDirtyForEditor(GetOwner());
+#endif
+}
+
 void USDMutableComponent::ApplyRecipeToMutable()
 {
-	SynchronizeCustomizableObjectInstanceFromOwner();
+	if (IsRuntimeWorld())
+	{
+		EnsureRuntimeCustomizableObjectInstance();
+	}
+	else
+	{
+		EnsureEditorCustomizableObjectInstance();
+	}
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
 	UE_LOG(LogSDMutable, Verbose, TEXT("Applying Sidekicks recipe to Mutable instance %s. Parts=%d"),
-		*GetNameSafe(CustomizableObjectInstance),
+		*GetNameSafe(ActiveInstance),
 		Recipe.Parts.Num());
 
 	ApplyFloatParameter(SDMutableParameters::MaleFemale, Recipe.BodyShape.MaleFemale);
@@ -263,7 +585,20 @@ void USDMutableComponent::ApplyRecipeToMutable()
 	ApplyFloatParameter(SDMutableParameters::DirtWeight, Recipe.Material.DirtWeight);
 	ApplyFloatParameter(SDMutableParameters::DarkWeight, Recipe.Material.DarkWeight);
 
-	if (UTexture* BaseColor = Recipe.Material.BaseColor.LoadSynchronous())
+	if (!ColorPalette.ColorSlots.IsEmpty())
+	{
+		RuntimeColorTexture = USDMutableColorPreset::BuildTransientColorTextureFromPalette(ColorPalette, GetTransientPackage());
+		if (RuntimeColorTexture)
+		{
+			ApplyTextureParameter(SDMutableParameters::BaseColor, RuntimeColorTexture);
+		}
+		else
+		{
+			UE_LOG(LogSDMutable, Warning, TEXT("Failed to build runtime Sidekicks color texture from local palette on component %s"),
+				*GetNameSafe(this));
+		}
+	}
+	else if (UTexture* BaseColor = Recipe.Material.BaseColor.LoadSynchronous())
 	{
 		ApplyTextureParameter(SDMutableParameters::BaseColor, BaseColor);
 	}
@@ -306,8 +641,16 @@ bool USDMutableComponent::SetRecipeAndApplyFromMutableDefaultsAndUpdate(const FS
 
 bool USDMutableComponent::ResetMutableParametersToDefaults(const bool bUpdateAfterReset, const bool bIgnoreCloseDist, const bool bForceHighPriority)
 {
-	SynchronizeCustomizableObjectInstanceFromOwner();
-	if (!CustomizableObjectInstance)
+	if (IsRuntimeWorld())
+	{
+		EnsureRuntimeCustomizableObjectInstance();
+	}
+	else
+	{
+		EnsureEditorCustomizableObjectInstance();
+	}
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot reset Mutable parameters: CustomizableObjectInstance is null on component %s"),
 			*GetNameSafe(this));
@@ -315,10 +658,10 @@ bool USDMutableComponent::ResetMutableParametersToDefaults(const bool bUpdateAft
 	}
 
 	UE_LOG(LogSDMutable, Log, TEXT("Resetting Mutable instance %s parameters to Customizable Object defaults. UpdateAfterReset=%s"),
-		*GetNameSafe(CustomizableObjectInstance),
+		*GetNameSafe(ActiveInstance),
 		bUpdateAfterReset ? TEXT("true") : TEXT("false"));
 
-	CustomizableObjectInstance->SetDefaultValues();
+	ActiveInstance->SetDefaultValues();
 
 	if (bUpdateAfterReset)
 	{
@@ -330,19 +673,30 @@ bool USDMutableComponent::ResetMutableParametersToDefaults(const bool bUpdateAft
 
 void USDMutableComponent::UpdateMutableInstance(const bool bIgnoreCloseDist, const bool bForceHighPriority)
 {
-	SynchronizeCustomizableObjectInstanceFromOwner();
-	if (CustomizableObjectInstance)
+	if (IsRuntimeWorld())
+	{
+		EnsureRuntimeCustomizableObjectInstance();
+	}
+	else
+	{
+		EnsureEditorCustomizableObjectInstance();
+	}
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (ActiveInstance)
 	{
 		UE_LOG(LogSDMutable, Log, TEXT("Updating Mutable instance %s after applying Sidekicks parameters. IgnoreCloseDist=%s ForceHighPriority=%s"),
-			*GetNameSafe(CustomizableObjectInstance),
+			*GetNameSafe(ActiveInstance),
 			bIgnoreCloseDist ? TEXT("true") : TEXT("false"),
 			bForceHighPriority ? TEXT("true") : TEXT("false"));
 
-		CustomizableObjectInstance->UpdateSkeletalMeshAsync(bIgnoreCloseDist, bForceHighPriority);
+		ActiveInstance->UpdateSkeletalMeshAsync(bIgnoreCloseDist, bForceHighPriority);
 #if WITH_EDITOR
-		CustomizableObjectInstance->PostEditChange();
-		MarkObjectDirtyForEditor(this);
-		MarkObjectDirtyForEditor(GetOwner());
+		ActiveInstance->PostEditChange();
+		if (!bSuppressEditorPreviewDirty)
+		{
+			MarkObjectDirtyForEditor(this);
+			MarkObjectDirtyForEditor(GetOwner());
+		}
 #endif
 		return;
 	}
@@ -366,6 +720,10 @@ void USDMutableComponent::SetPart(const ESDMutablePartSlot Slot, const FName Opt
 
 			if (bApplyToMutable)
 			{
+				if (!IsRuntimeWorld())
+				{
+					EnsureEditorCustomizableObjectInstance();
+				}
 				ApplyPartToMutable(Selection);
 			}
 #if WITH_EDITOR
@@ -383,6 +741,10 @@ void USDMutableComponent::SetPart(const ESDMutablePartSlot Slot, const FName Opt
 
 	if (bApplyToMutable)
 	{
+		if (!IsRuntimeWorld())
+		{
+			EnsureEditorCustomizableObjectInstance();
+		}
 		ApplyPartToMutable(NewSelection);
 	}
 #if WITH_EDITOR
@@ -402,6 +764,10 @@ void USDMutableComponent::SetBodyShape(const FSDMutableBodyShape& InBodyShape, c
 
 	if (bApplyToMutable)
 	{
+		if (!IsRuntimeWorld())
+		{
+			EnsureEditorCustomizableObjectInstance();
+		}
 		ApplyFloatParameter(SDMutableParameters::MaleFemale, Recipe.BodyShape.MaleFemale);
 		ApplyFloatParameter(SDMutableParameters::Heavy, Recipe.BodyShape.Heavy);
 		ApplyFloatParameter(SDMutableParameters::Buff, Recipe.BodyShape.Buff);
@@ -527,7 +893,8 @@ bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Sele
 
 bool USDMutableComponent::ApplyFloatParameter(const FName ParameterName, const float Value) const
 {
-	if (!CustomizableObjectInstance)
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply float parameter %s: CustomizableObjectInstance is null"),
 			*ParameterName.ToString());
@@ -539,7 +906,7 @@ bool USDMutableComponent::ApplyFloatParameter(const FName ParameterName, const f
 		Value);
 #if WITH_EDITOR
 #endif
-	CustomizableObjectInstance->SetFloatParameterSelectedOption(ParameterName.ToString(), Value);
+	ActiveInstance->SetFloatParameterSelectedOption(ParameterName.ToString(), Value);
 #if WITH_EDITOR
 #endif
 	return true;
@@ -547,7 +914,8 @@ bool USDMutableComponent::ApplyFloatParameter(const FName ParameterName, const f
 
 bool USDMutableComponent::ApplyColorParameter(const FName ParameterName, const FLinearColor& Value) const
 {
-	if (!CustomizableObjectInstance)
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply color parameter %s: CustomizableObjectInstance is null"),
 			*ParameterName.ToString());
@@ -559,7 +927,7 @@ bool USDMutableComponent::ApplyColorParameter(const FName ParameterName, const F
 		*Value.ToString());
 #if WITH_EDITOR
 #endif
-	CustomizableObjectInstance->SetColorParameterSelectedOption(ParameterName.ToString(), Value);
+	ActiveInstance->SetColorParameterSelectedOption(ParameterName.ToString(), Value);
 #if WITH_EDITOR
 #endif
 	return true;
@@ -567,11 +935,12 @@ bool USDMutableComponent::ApplyColorParameter(const FName ParameterName, const F
 
 bool USDMutableComponent::ApplyTextureParameter(const FName ParameterName, UTexture* Value) const
 {
-	if (!CustomizableObjectInstance || !Value)
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance || !Value)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply texture parameter %s: Instance=%s Texture=%s"),
 			*ParameterName.ToString(),
-			*GetNameSafe(CustomizableObjectInstance),
+			*GetNameSafe(ActiveInstance),
 			*GetNameSafe(Value));
 		return false;
 	}
@@ -582,7 +951,7 @@ bool USDMutableComponent::ApplyTextureParameter(const FName ParameterName, UText
 		*Value->GetPathName());
 #if WITH_EDITOR
 #endif
-	CustomizableObjectInstance->SetTextureParameterSelectedOption(ParameterName.ToString(), Value);
+	ActiveInstance->SetTextureParameterSelectedOption(ParameterName.ToString(), Value);
 #if WITH_EDITOR
 #endif
 	return true;
@@ -590,11 +959,12 @@ bool USDMutableComponent::ApplyTextureParameter(const FName ParameterName, UText
 
 bool USDMutableComponent::ApplySkeletalMeshParameter(const FName ParameterName, USkeletalMesh* Value) const
 {
-	if (!CustomizableObjectInstance || !Value)
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance || !Value)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply skeletal mesh parameter %s: Instance=%s Mesh=%s"),
 			*ParameterName.ToString(),
-			*GetNameSafe(CustomizableObjectInstance),
+			*GetNameSafe(ActiveInstance),
 			*GetNameSafe(Value));
 		return false;
 	}
@@ -609,7 +979,7 @@ bool USDMutableComponent::ApplySkeletalMeshParameter(const FName ParameterName, 
 
 #if WITH_EDITOR
 #endif
-	CustomizableObjectInstance->SetSkeletalMeshParameterSelectedOption(ParameterName.ToString(), Value);
+	ActiveInstance->SetSkeletalMeshParameterSelectedOption(ParameterName.ToString(), Value);
 #if WITH_EDITOR
 #endif
 	return true;
@@ -617,7 +987,8 @@ bool USDMutableComponent::ApplySkeletalMeshParameter(const FName ParameterName, 
 
 bool USDMutableComponent::ApplyIntOptionParameter(const FName ParameterName, const FName OptionId) const
 {
-	if (!CustomizableObjectInstance)
+	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
+	if (!ActiveInstance)
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply int option parameter %s=%s: CustomizableObjectInstance is null"),
 			*ParameterName.ToString(),
@@ -630,8 +1001,29 @@ bool USDMutableComponent::ApplyIntOptionParameter(const FName ParameterName, con
 		*OptionId.ToString());
 #if WITH_EDITOR
 #endif
-	CustomizableObjectInstance->SetIntParameterSelectedOption(ParameterName.ToString(), OptionId.ToString());
+	ActiveInstance->SetIntParameterSelectedOption(ParameterName.ToString(), OptionId.ToString());
 #if WITH_EDITOR
 #endif
 	return true;
+}
+
+bool USDMutableComponent::IsRuntimeWorld() const
+{
+	const UWorld* World = GetWorld();
+	return World && World->IsGameWorld();
+}
+
+UCustomizableObjectInstance* USDMutableComponent::GetActiveCustomizableObjectInstance() const
+{
+	if (IsRuntimeWorld() && RuntimeCustomizableObjectInstance)
+	{
+		return RuntimeCustomizableObjectInstance;
+	}
+
+	if (!IsRuntimeWorld() && EditorCustomizableObjectInstance)
+	{
+		return EditorCustomizableObjectInstance;
+	}
+
+	return CustomizableObjectInstance;
 }
