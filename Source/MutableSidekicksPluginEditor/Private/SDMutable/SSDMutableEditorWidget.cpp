@@ -54,7 +54,7 @@
 
 #define LOCTEXT_NAMESPACE "SSDMutableEditorWidget"
 
-namespace
+namespace SDMutableEditorWidgetPrivate
 {
 	void AccumulatePackStats(const TArray<TSoftObjectPtr<USDMutableCatalogPack>>& PackRefs, int32& InOutLoadedPackCount, int32& InOutPartCount)
 	{
@@ -1025,10 +1025,10 @@ void SSDMutableEditorWidget::RefreshCatalog()
 	SharedPackCount = Catalog->SharedPackCatalogs.Num();
 	UnknownPackCount = Catalog->UnknownPackCatalogs.Num();
 
-	AccumulatePackStats(Catalog->SpeciesPackCatalogs, LoadedPackCount, LoadedPartCount);
-	AccumulatePackStats(Catalog->OutfitPackCatalogs, LoadedPackCount, LoadedPartCount);
-	AccumulatePackStats(Catalog->SharedPackCatalogs, LoadedPackCount, LoadedPartCount);
-	AccumulatePackStats(Catalog->UnknownPackCatalogs, LoadedPackCount, LoadedPartCount);
+	SDMutableEditorWidgetPrivate::AccumulatePackStats(Catalog->SpeciesPackCatalogs, LoadedPackCount, LoadedPartCount);
+	SDMutableEditorWidgetPrivate::AccumulatePackStats(Catalog->OutfitPackCatalogs, LoadedPackCount, LoadedPartCount);
+	SDMutableEditorWidgetPrivate::AccumulatePackStats(Catalog->SharedPackCatalogs, LoadedPackCount, LoadedPartCount);
+	SDMutableEditorWidgetPrivate::AccumulatePackStats(Catalog->UnknownPackCatalogs, LoadedPackCount, LoadedPartCount);
 
 	CatalogStatus = FString::Printf(TEXT("Loaded root catalog: %s"), *Catalog->GetPathName());
 }
@@ -1138,7 +1138,7 @@ void SSDMutableEditorWidget::RefreshTargetFromSelectedCoi()
 
 void SSDMutableEditorWidget::SetTargetCustomizableObjectInstance(UCustomizableObjectInstance* InCustomizableObjectInstance)
 {
-	if (USDMutableSidekickRecipeAsset* RecipeAsset = FindRecipeAssetForCustomizableObjectInstance(InCustomizableObjectInstance))
+	if (USDMutableSidekickRecipeAsset* RecipeAsset = SDMutableEditorWidgetPrivate::FindRecipeAssetForCustomizableObjectInstance(InCustomizableObjectInstance))
 	{
 		// A recipe DA that references this COI is the authoritative source; edits should keep DA, texture, and COI in sync.
 		SetTargetRecipeAsset(RecipeAsset);
@@ -1160,7 +1160,7 @@ void SSDMutableEditorWidget::SetTargetCustomizableObjectInstance(UCustomizableOb
 
 	if (InCustomizableObjectInstance)
 	{
-		LoadSidekicksRecipeFromCustomizableObjectInstance(*InCustomizableObjectInstance, LoadedCatalog.Get(), EditorRecipe, EditorColorPalette);
+		SDMutableEditorWidgetPrivate::LoadSidekicksRecipeFromCustomizableObjectInstance(*InCustomizableObjectInstance, LoadedCatalog.Get(), EditorRecipe, EditorColorPalette);
 		TargetStatus = FString::Printf(TEXT("Target COI asset: %s. Editing uses an editor-local Sidekicks recipe."), *InCustomizableObjectInstance->GetPathName());
 	}
 	else
@@ -1248,7 +1248,7 @@ void SSDMutableEditorWidget::RebuildSlotItems()
 
 		TSharedPtr<FSDMutableSlotListItem> Item = MakeShared<FSDMutableSlotListItem>();
 		Item->Slot = SlotTable.Slot;
-		Item->DisplayName = GetSlotDisplayName(SlotTable.Slot);
+		Item->DisplayName = SDMutableEditorWidgetPrivate::GetSlotDisplayName(SlotTable.Slot);
 		Item->PartCount = Parts.Num() + 1;
 		SlotItems.Add(Item);
 
@@ -1284,10 +1284,10 @@ void SSDMutableEditorWidget::RebuildPackItems()
 		return;
 	}
 
-	AccumulateGlobalPackFilterItems(Catalog->SpeciesPackCatalogs, ESDMutableCatalogPackType::Species, PreviousEnabledState, PackItems);
-	AccumulateGlobalPackFilterItems(Catalog->OutfitPackCatalogs, ESDMutableCatalogPackType::Outfit, PreviousEnabledState, PackItems);
-	AccumulateGlobalPackFilterItems(Catalog->SharedPackCatalogs, ESDMutableCatalogPackType::Shared, PreviousEnabledState, PackItems);
-	AccumulateGlobalPackFilterItems(Catalog->UnknownPackCatalogs, ESDMutableCatalogPackType::Unknown, PreviousEnabledState, PackItems);
+	SDMutableEditorWidgetPrivate::AccumulateGlobalPackFilterItems(Catalog->SpeciesPackCatalogs, ESDMutableCatalogPackType::Species, PreviousEnabledState, PackItems);
+	SDMutableEditorWidgetPrivate::AccumulateGlobalPackFilterItems(Catalog->OutfitPackCatalogs, ESDMutableCatalogPackType::Outfit, PreviousEnabledState, PackItems);
+	SDMutableEditorWidgetPrivate::AccumulateGlobalPackFilterItems(Catalog->SharedPackCatalogs, ESDMutableCatalogPackType::Shared, PreviousEnabledState, PackItems);
+	SDMutableEditorWidgetPrivate::AccumulateGlobalPackFilterItems(Catalog->UnknownPackCatalogs, ESDMutableCatalogPackType::Unknown, PreviousEnabledState, PackItems);
 
 	PackItems.Sort([](const TSharedPtr<FSDMutablePackListItem>& Left, const TSharedPtr<FSDMutablePackListItem>& Right)
 	{
@@ -1326,10 +1326,10 @@ void SSDMutableEditorWidget::RebuildPartItems()
 
 	TSharedPtr<FSDMutablePartListItem> NoneItem = MakeShared<FSDMutablePartListItem>();
 	NoneItem->Part = NonePart;
-	NoneItem->ThumbnailBrush = MakeThumbnailBrush(NonePart);
+	NoneItem->ThumbnailBrush = SDMutableEditorWidgetPrivate::MakeThumbnailBrush(NonePart);
 	if (!NoneItem->ThumbnailBrush.IsValid())
 	{
-		NoneItem->ThumbnailBrush = MakeTransparentThumbnailBrush();
+		NoneItem->ThumbnailBrush = SDMutableEditorWidgetPrivate::MakeTransparentThumbnailBrush();
 	}
 	AllPartItems.Add(NoneItem);
 
@@ -1350,7 +1350,7 @@ void SSDMutableEditorWidget::RebuildPartItems()
 
 		TSharedPtr<FSDMutablePartListItem> PartItem = MakeShared<FSDMutablePartListItem>();
 		PartItem->Part = Part;
-		PartItem->ThumbnailBrush = MakeThumbnailBrush(Part);
+		PartItem->ThumbnailBrush = SDMutableEditorWidgetPrivate::MakeThumbnailBrush(Part);
 		AllPartItems.Add(PartItem);
 	}
 
@@ -1395,7 +1395,7 @@ void SSDMutableEditorWidget::ApplyPartSearchFilter()
 		const FSDMutableCatalogPartEntry& Part = PartItem->Part;
 		const FString SearchableText = FString::Printf(
 			TEXT("%s %s %s %s"),
-			*GetPartDisplayName(Part).ToString(),
+			*SDMutableEditorWidgetPrivate::GetPartDisplayName(Part).ToString(),
 			*Part.PartId.ToString(),
 			*Part.PackId.ToString(),
 			*Part.SourceAssetPath).ToLower();
@@ -1639,7 +1639,7 @@ void SSDMutableEditorWidget::RebuildPartListWidget()
 			.WidthOverride(256.0f)
 			.HeightOverride(256.0f)
 			[
-				MakeThumbnailWidget(SelectedPartItem->ThumbnailBrush)
+					SDMutableEditorWidgetPrivate::MakeThumbnailWidget(SelectedPartItem->ThumbnailBrush)
 			]
 		]
 		+ SHorizontalBox::Slot()
@@ -1650,7 +1650,7 @@ void SSDMutableEditorWidget::RebuildPartListWidget()
 			.AutoHeight()
 			[
 				SNew(STextBlock)
-				.Text(GetPartDisplayName(Part))
+				.Text(SDMutableEditorWidgetPrivate::GetPartDisplayName(Part))
 				.AutoWrapText(true)
 			]
 			+ SVerticalBox::Slot()
@@ -2400,7 +2400,7 @@ void SSDMutableEditorWidget::ClearSlot(TSharedPtr<FSDMutableSlotListItem> SlotIt
 
 	TargetStatus = FString::Printf(
 		TEXT("Cleared %s to None on %s."),
-	*GetSlotDisplayName(SlotItem->Slot).ToString(),
+				*SDMutableEditorWidgetPrivate::GetSlotDisplayName(SlotItem->Slot).ToString(),
 	Component ? *GetNameSafe(Component) : *GetNameSafe(TargetCustomizableObjectInstance.Get()));
 
 	RebuildPartItems();
@@ -2768,7 +2768,7 @@ bool SSDMutableEditorWidget::ApplyEditorRecipeToTargetCoi()
 		return false;
 	}
 
-	ApplyRecipeToCustomizableObjectInstance(*Coi, Catalog, EditorRecipe);
+	SDMutableEditorWidgetPrivate::ApplyRecipeToCustomizableObjectInstance(*Coi, Catalog, EditorRecipe);
 	Coi->UpdateSkeletalMeshAsync(false, false);
 	TargetStatus = FString::Printf(TEXT("Applied editor-local Sidekicks recipe to COI %s."), *GetNameSafe(Coi));
 	return true;
@@ -2842,7 +2842,7 @@ FSDMutableRecipeJsonExchange SSDMutableEditorWidget::MakeCurrentRecipeJsonExchan
 	Exchange.ExchangeVersion = 1;
 	Exchange.SourceAssetName = RecipeAsset
 		? RecipeAsset->GetName()
-		: MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : (Coi ? Coi->GetName() : TEXT("SidekickPreset")));
+		: SDMutableEditorWidgetPrivate::MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : (Coi ? Coi->GetName() : TEXT("SidekickPreset")));
 	Exchange.Recipe = Component ? Component->Recipe : EditorRecipe;
 	Exchange.ColorPalette = Component ? Component->ColorPalette : EditorColorPalette;
 	Exchange.ColorPalette.EnsureColorSlotCount();
@@ -2915,8 +2915,8 @@ void SSDMutableEditorWidget::ApplyRecipeJsonExchangeToCurrentTarget(const FSDMut
 void SSDMutableEditorWidget::ExportCurrentRecipeJson()
 {
 	const FSDMutableRecipeJsonExchange Exchange = MakeCurrentRecipeJsonExchange();
-	const FString DefaultFileName = MakeSafeAssetName(Exchange.SourceAssetName) + TEXT(".json");
-	const FString OutputPath = PromptForRecipeJsonSavePath(DefaultFileName);
+	const FString DefaultFileName = SDMutableEditorWidgetPrivate::MakeSafeAssetName(Exchange.SourceAssetName) + TEXT(".json");
+	const FString OutputPath = SDMutableEditorWidgetPrivate::PromptForRecipeJsonSavePath(DefaultFileName);
 	if (OutputPath.IsEmpty())
 	{
 		TargetStatus = TEXT("Export JSON cancelled.");
@@ -2950,7 +2950,7 @@ void SSDMutableEditorWidget::ExportCurrentRecipeJson()
 
 void SSDMutableEditorWidget::ImportCurrentRecipeJson()
 {
-	const FString InputPath = PromptForRecipeJsonOpenPath();
+	const FString InputPath = SDMutableEditorWidgetPrivate::PromptForRecipeJsonOpenPath();
 	if (InputPath.IsEmpty())
 	{
 		TargetStatus = TEXT("Import JSON cancelled.");
@@ -2989,16 +2989,16 @@ void SSDMutableEditorWidget::SaveCurrentRecipe()
 	bool bSavedTexture = true;
 	if (UTexture2D* ColorTexture = RecipeAsset->ColorTexture.LoadSynchronous())
 	{
-		bSavedTexture = SaveAssetPackage(*ColorTexture);
+		bSavedTexture = SDMutableEditorWidgetPrivate::SaveAssetPackage(*ColorTexture);
 	}
 
 	bool bSavedCoi = true;
 	if (UCustomizableObjectInstance* Coi = RecipeAsset->CustomizableObjectInstance.LoadSynchronous())
 	{
-		bSavedCoi = SaveAssetPackage(*Coi);
+		bSavedCoi = SDMutableEditorWidgetPrivate::SaveAssetPackage(*Coi);
 	}
 
-	const bool bSavedRecipe = SaveAssetPackage(*RecipeAsset);
+	const bool bSavedRecipe = SDMutableEditorWidgetPrivate::SaveAssetPackage(*RecipeAsset);
 	TargetStatus = FString::Printf(
 		TEXT("%s recipe DA %s, texture %s, and COI %s."),
 		(bSavedRecipe && bSavedTexture && bSavedCoi) ? TEXT("Saved") : TEXT("Attempted to save"),
@@ -3028,9 +3028,9 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	SavedColorPalette.EnsureColorSlotCount();
 
 	const AActor* Owner = Component ? Component->GetOwner() : nullptr;
-	const FString SourceName = MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : SourceCoi->GetName());
+	const FString SourceName = SDMutableEditorWidgetPrivate::MakeSafeAssetName(Owner ? Owner->GetActorNameOrLabel() : SourceCoi->GetName());
 	const FString DefaultAssetName = FString::Printf(TEXT("DA_SDRecipe_%s"), *SourceName);
-	const FString SaveObjectPath = PromptForRecipeSaveObjectPath(DefaultAssetName);
+	const FString SaveObjectPath = SDMutableEditorWidgetPrivate::PromptForRecipeSaveObjectPath(DefaultAssetName);
 	if (SaveObjectPath.IsEmpty())
 	{
 		TargetStatus = TEXT("Save recipe cancelled.");
@@ -3047,8 +3047,8 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	const FString RecipeAssetName = FString::Printf(TEXT("DA_%s"), *BaseAssetName);
 	const FString TextureAssetName = FString::Printf(TEXT("T_%s"), *BaseAssetName);
 	const FString CoiAssetName = FString::Printf(TEXT("COI_%s"), *BaseAssetName);
-	const FString ActualRecipePackagePath = MakePackageName(TargetPackagePath, RecipeAssetName);
-	const FString CoiPackagePath = MakePackageName(TargetPackagePath, CoiAssetName);
+	const FString ActualRecipePackagePath = SDMutableEditorWidgetPrivate::MakePackageName(TargetPackagePath, RecipeAssetName);
+	const FString CoiPackagePath = SDMutableEditorWidgetPrivate::MakePackageName(TargetPackagePath, CoiAssetName);
 
 	USDMutableColorPreset* TemporaryColorPreset = NewObject<USDMutableColorPreset>(GetTransientPackage());
 	TemporaryColorPreset->Palette = SavedColorPalette;
@@ -3071,7 +3071,7 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 		return;
 	}
 
-	UCustomizableObjectInstance* SavedCoi = Cast<UCustomizableObjectInstance>(FindObjectInPackage(CoiPackagePath, CoiAssetName, UCustomizableObjectInstance::StaticClass()));
+	UCustomizableObjectInstance* SavedCoi = Cast<UCustomizableObjectInstance>(SDMutableEditorWidgetPrivate::FindObjectInPackage(CoiPackagePath, CoiAssetName, UCustomizableObjectInstance::StaticClass()));
 	const bool bCreatedCoi = SavedCoi == nullptr;
 	if (!SavedCoi)
 	{
@@ -3090,7 +3090,7 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 
 	SavedCoi->Modify();
 	const USDMutableCatalog* TargetCatalog = Component ? Component->Catalog.Get() : LoadedCatalog.Get();
-	ApplyRecipeToCustomizableObjectInstance(*SavedCoi, TargetCatalog, SavedRecipe);
+	SDMutableEditorWidgetPrivate::ApplyRecipeToCustomizableObjectInstance(*SavedCoi, TargetCatalog, SavedRecipe);
 	if (bCreatedCoi)
 	{
 		FAssetRegistryModule::AssetCreated(SavedCoi);
@@ -3129,11 +3129,11 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	}
 
 	RecipePackage->MarkPackageDirty();
-	const bool bSavedCoi = SaveAssetPackage(*SavedCoi);
-	const bool bSavedRecipe = SaveAssetPackage(*RecipeAsset);
+	const bool bSavedCoi = SDMutableEditorWidgetPrivate::SaveAssetPackage(*SavedCoi);
+	const bool bSavedRecipe = SDMutableEditorWidgetPrivate::SaveAssetPackage(*RecipeAsset);
 	if (Component)
 	{
-		SetActorCustomizableObjectInstance(Component->GetOwner(), SavedCoi);
+		SDMutableEditorWidgetPrivate::SetActorCustomizableObjectInstance(Component->GetOwner(), SavedCoi);
 		Component->SetCustomizableObjectInstance(SavedCoi);
 		Component->SourceRecipeAsset = TSoftObjectPtr<USDMutableSidekickRecipeAsset>(RecipeAsset);
 		Component->TemplateCustomizableObjectInstance = TSoftObjectPtr<UCustomizableObjectInstance>(SavedCoi);
@@ -3207,7 +3207,7 @@ void SSDMutableEditorWidget::ApplyPart(TSharedPtr<FSDMutablePartListItem> PartIt
 	TargetStatus = FString::Printf(
 		TEXT("Applied %s to %s on %s."),
 		PartItem->Part.PartId.IsNone() ? TEXT("None") : *PartItem->Part.PartId.ToString(),
-		*GetSlotDisplayName(SelectedSlotItem->Slot).ToString(),
+			*SDMutableEditorWidgetPrivate::GetSlotDisplayName(SelectedSlotItem->Slot).ToString(),
 	Component ? *GetNameSafe(Component) : *GetNameSafe(TargetCustomizableObjectInstance.Get()));
 
 	RebuildSlotListWidget();
@@ -3256,7 +3256,7 @@ FText SSDMutableEditorWidget::GetSelectedPartText() const
 		return LOCTEXT("NoPartComboSelection", "Select Mesh Option");
 	}
 
-	const FText PartName = GetPartDisplayName(SelectedPartItem->Part);
+	const FText PartName = SDMutableEditorWidgetPrivate::GetPartDisplayName(SelectedPartItem->Part);
 	if (SelectedPartItem->Part.PackId.IsNone())
 	{
 		return PartName;
@@ -3324,7 +3324,7 @@ TSharedRef<SWidget> SSDMutableEditorWidget::GeneratePartComboWidget(TSharedPtr<F
 		return SNew(STextBlock).Text(LOCTEXT("InvalidPartComboItem", "Invalid"));
 	}
 
-	const FText PartName = GetPartDisplayName(PartItem->Part);
+	const FText PartName = SDMutableEditorWidgetPrivate::GetPartDisplayName(PartItem->Part);
 	const FText PackName = PartItem->Part.PackId.IsNone() ? FText::GetEmpty() : FText::Format(LOCTEXT("PartComboPackFormat", "Pack: {0}"), FText::FromName(PartItem->Part.PackId));
 	const FText ColorCount = FText::Format(LOCTEXT("PartComboColorCount", "Colors: {0}"), FText::AsNumber(PartItem->Part.ColorProperties.Num()));
 
@@ -3337,7 +3337,7 @@ TSharedRef<SWidget> SSDMutableEditorWidget::GeneratePartComboWidget(TSharedPtr<F
 			.WidthOverride(40.0f)
 			.HeightOverride(40.0f)
 			[
-				MakeThumbnailWidget(PartItem->ThumbnailBrush)
+				SDMutableEditorWidgetPrivate::MakeThumbnailWidget(PartItem->ThumbnailBrush)
 			]
 		]
 		+ SHorizontalBox::Slot()

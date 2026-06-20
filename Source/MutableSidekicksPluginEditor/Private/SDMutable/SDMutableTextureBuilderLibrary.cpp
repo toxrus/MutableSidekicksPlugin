@@ -8,7 +8,7 @@
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
-namespace
+namespace SDMutableTextureBuilderPrivate
 {
 	// Must match USDMutableColorPreset's runtime builder: 256 logical palette slots, 2x2 pixels per slot.
 	constexpr int32 TextureSize = 32;
@@ -122,7 +122,7 @@ UTexture2D* USDMutableTextureBuilderLibrary::BuildSidekicksColorTextureAsset(
 		return nullptr;
 	}
 
-	const FString PackageName = MakePackageName(PackagePath, AssetName);
+	const FString PackageName = SDMutableTextureBuilderPrivate::MakePackageName(PackagePath, AssetName);
 	UPackage* Package = CreatePackage(*PackageName);
 	if (!Package)
 	{
@@ -152,7 +152,7 @@ UTexture2D* USDMutableTextureBuilderLibrary::BuildSidekicksColorTextureAsset(
 	}
 
 	Package->MarkPackageDirty();
-	SaveTexturePackage(*Package, *Texture);
+	SDMutableTextureBuilderPrivate::SaveTexturePackage(*Package, *Texture);
 	return Texture;
 }
 
@@ -178,7 +178,7 @@ bool USDMutableTextureBuilderLibrary::WriteSidekicksColorTextureFromPalette(
 	}
 
 	TArray<FColor> Pixels;
-	BuildPixelData(Palette, Pixels);
-	WritePixelDataToTexture(*Texture, Pixels);
+	SDMutableTextureBuilderPrivate::BuildPixelData(Palette, Pixels);
+	SDMutableTextureBuilderPrivate::WritePixelDataToTexture(*Texture, Pixels);
 	return true;
 }
