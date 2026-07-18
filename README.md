@@ -2,7 +2,7 @@
 
 ## USE FOR TESTING/LEARNING ONLY - THIS IS VERY MUCH WIP, NOT RECOMMENDED FOR USE IN ACTUAL PRODUCTION!
 
-MutableSidekicksPlugin is an Unreal Engine plugin workflow for building Synty Sidekicks characters with Unreal Mutable. The plugin includes a Sidekicks Customizable Object, a root catalog DataAsset, bundled species/outfit pack catalogs, and editor tools for creating Sidekicks from `UCustomizableObjectInstance` assets.
+MutableSidekicksPlugin is an Unreal Engine plugin workflow for building Synty Sidekicks characters (unity version by default) with Unreal Mutable. The plugin includes a Sidekicks Customizable Object, a root catalog DataAsset, bundled species/outfit pack catalogs, and editor tools for creating Sidekicks from `UCustomizableObjectInstance` assets.
 
 ## Requirements
 
