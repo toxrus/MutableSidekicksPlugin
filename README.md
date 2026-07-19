@@ -2,7 +2,7 @@
 
 ## USE FOR TESTING/LEARNING ONLY - THIS IS VERY MUCH WIP, NOT RECOMMENDED FOR USE IN ACTUAL PRODUCTION!
 
-MutableSidekicksPlugin is an Unreal Engine plugin workflow for building Synty Sidekicks characters with Unreal Mutable. The plugin includes a Sidekicks Customizable Object, a root catalog DataAsset, bundled species/outfit pack catalogs, and editor tools for creating Sidekicks from `UCustomizableObjectInstance` assets.
+MutableSidekicksPlugin is an Unreal Engine plugin workflow for building Synty Sidekicks characters (unity version by default) with Unreal Mutable. The plugin includes a Sidekicks Customizable Object, a root catalog DataAsset, bundled species/outfit pack catalogs, and editor tools for creating Sidekicks from `UCustomizableObjectInstance` assets.
 
 ## Requirements
 
@@ -23,13 +23,22 @@ Important included assets:
 
 ```text
 /MutableSidekicksPlugin/Core/CO_Sidekicks.CO_Sidekicks
+/MutableSidekicksPlugin/Core/SKM_BaseModel.SKM_BaseModel
 /MutableSidekicksPlugin/Core/SKM_Sidekicks_Empty.SKM_Sidekicks_Empty
 /MutableSidekicksPlugin/Core/DataAssets/SD_RootCatalog.SD_RootCatalog
 /MutableSidekicksPlugin/Core/DataAssets/Species/*
 /MutableSidekicksPlugin/Core/DataAssets/Outfits/*
 ```
 
-`SD_RootCatalog` already contains references to the bundled pack catalogs that ship with the plugin (This covers all available Synty Sidekicks as of 2026.06.13). Its import path arrays may be empty in a fresh install, so each project should add the mesh scan path that matches where its Synty Sidekicks content was imported. If no scan path is set, the catalog tools fall back to `/Game/Sidekicks`.
+`SKM_BaseModel` is a distributable placeholder that keeps the `CO_Sidekicks` reference valid when the plugin is first installed. It is not the proper Synty BaseModel. During setup, replace or reimport this placeholder in place using your licensed BaseModel so the asset keeps this exact path:
+
+```text
+/MutableSidekicksPlugin/Core/SKM_BaseModel.SKM_BaseModel
+```
+
+Do not import the proper BaseModel as a differently named second asset. `CO_Sidekicks` references the path above, keeping its reference inside the plugin instead of pointing to external project content.
+
+The bundled pack catalogs cover all available Synty Sidekicks as of 2026.06.13. In a fresh install, use `RebuildCatalogFromAssetRegistry` to populate `SD_RootCatalog` with references to those pack catalogs before rebuilding their mesh entries. Each project must also add the mesh scan path that matches where its Synty Sidekicks content was imported. If no mesh scan path is set, the catalog tools fall back to `/Game/Sidekicks`.
 
 ## Initial Setup In Your Project
 
@@ -39,30 +48,50 @@ Important included assets:
    - `Mutable`
    - `MutableSidekicksPlugin`
 4. Restart the editor if prompted.
-5. Open `Edit > Project Settings > Plugins > Sidekicks Mutable`.
-6. Set `Root Catalog` to:
+5. In the Content Browser, enable `Show Plugin Content` if it is not already visible.
+6. Open the bundled placeholder at:
+
+```text
+/MutableSidekicksPlugin/Core/SKM_BaseModel.SKM_BaseModel
+```
+
+7. Use `Reimport Base Mesh With New File`, or replace the placeholder asset in place, using your licensed Synty BaseModel. Keep the asset name and path as `SKM_BaseModel` under `/MutableSidekicksPlugin/Core`. If Unreal prompts for a skeleton, select the proper BaseModel skeleton from your licensed Sidekicks content.
+8. Recompile and save `CO_Sidekicks` after replacing the placeholder.
+9. Open `Edit > Project Settings > Plugins > Sidekicks Mutable`.
+10. Set `Root Catalog` to:
 
 ```text
 /MutableSidekicksPlugin/Core/DataAssets/SD_RootCatalog.SD_RootCatalog
 ```
 
-7. Set `Sidekicks Customizable Object` to:
+11. Set `Sidekicks Customizable Object` to:
 
 ```text
 /MutableSidekicksPlugin/Core/CO_Sidekicks.CO_Sidekicks
 ```
 
-8. Open `SD_RootCatalog`.
-9. In the `Import` section, add at least one `ScanRootPaths` entry for the folder where your Synty Sidekicks skeletal meshes are imported. A common value is:
+12. Open `SD_RootCatalog`.
+13. In the `Import` section, add at least one `ScanRootPaths` entry for the folder where your Synty Sidekicks skeletal meshes are imported. A common value is:
 
 ```text
 /Game/Sidekicks
 ```
 
-10. Leave `PackCatalogScanRootPaths` empty unless you are using catalog discovery for custom or moved pack catalogs.
-11. Save `SD_RootCatalog`.
+14. Confirm that `PackCatalogScanRootPaths` contains the bundled pack-catalog folder:
 
-`PackCatalogScanRootPaths` is only needed when you want the root catalog to discover additional or moved pack catalog DataAssets. The bundled pack catalogs are already referenced by `SD_RootCatalog`, so the default plugin setup does not require a pack catalog scan path.
+```text
+/MutableSidekicksPlugin/Core/DataAssets
+```
+
+15. Click `RebuildCatalogFromAssetRegistry` to populate the pack-catalog references on `SD_RootCatalog`.
+16. If your imported meshes have extra `transform1`, `transform2`, or `transform3` hierarchy bones, click `FixSyntySidekickSkeletonTransformBones`.
+17. Click `RebuildAllPackCatalogsFromAssetRegistry` to populate the referenced pack catalogs with skeletal mesh references.
+18. Click `ValidateCatalogAgainstAssetRegistry`.
+19. Save `SD_RootCatalog` and all changed pack catalogs.
+
+The order of the two rebuild actions matters. `RebuildCatalogFromAssetRegistry` first discovers the pack catalog DataAssets and adds them to `SD_RootCatalog`. Only then can `RebuildAllPackCatalogsFromAssetRegistry` process those referenced catalogs and add their skeletal mesh references.
+
+Change or add `PackCatalogScanRootPaths` entries only when the bundled pack catalogs have moved or you want to discover custom pack catalog DataAssets.
 
 Unreal asset paths use `/Game/...` for assets under a project's `Content` folder. Do not enter `/Content/...` in these fields.
 
@@ -111,12 +140,14 @@ Recommended first refresh in a new project:
 
 1. Open `SD_RootCatalog`.
 2. Add `ScanRootPaths` entries for your imported Synty Sidekicks skeletal mesh folders.
-3. If your imported meshes have extra `transform1`, `transform2`, or `transform3` hierarchy bones, click `FixSyntySidekickSkeletonTransformBones`.
-4. Click `RebuildAllPackCatalogsFromAssetRegistry`.
-5. Click `ValidateCatalogAgainstAssetRegistry`.
-6. Save `SD_RootCatalog` and all changed pack catalogs.
+3. Confirm `PackCatalogScanRootPaths` includes `/MutableSidekicksPlugin/Core/DataAssets`.
+4. Click `RebuildCatalogFromAssetRegistry` to populate the root catalog's pack references.
+5. If your imported meshes have extra `transform1`, `transform2`, or `transform3` hierarchy bones, click `FixSyntySidekickSkeletonTransformBones`.
+6. Click `RebuildAllPackCatalogsFromAssetRegistry` to populate the referenced pack catalogs.
+7. Click `ValidateCatalogAgainstAssetRegistry`.
+8. Save `SD_RootCatalog` and all changed pack catalogs.
 
-Do not run `RebuildCatalogFromAssetRegistry` unless `PackCatalogScanRootPaths` points to the folders where you want pack catalogs discovered from. The bundled root catalog already knows about the bundled pack catalogs. If the discovery path is empty, the code falls back to `/Game/Sidekicks`, which is useful for mesh scans but usually not where pack catalog DataAssets live.
+Always run `RebuildCatalogFromAssetRegistry` before `RebuildAllPackCatalogsFromAssetRegistry` during initial setup. The first action populates the root catalog's pack references; the second action can only rebuild packs that the root catalog references.
 
 ## Creating Or Editing Pack Catalogs
 
@@ -149,12 +180,12 @@ Use `AssetNameTokens` when several packs share the same scan root and need filen
 
 Open `SD_RootCatalog` and use the Details-panel buttons:
 
-- `RebuildAllPackCatalogsFromAssetRegistry`: rebuilds every referenced pack catalog using the root scan paths and slot rules.
+- `RebuildCatalogFromAssetRegistry`: discovers pack catalog assets under `PackCatalogScanRootPaths` and repopulates the root pack arrays by `PackType`.
+- `RebuildAllPackCatalogsFromAssetRegistry`: rebuilds every referenced pack catalog using the root scan paths and slot rules. During initial setup, run this only after `RebuildCatalogFromAssetRegistry`.
 - `ValidateCatalogAgainstAssetRegistry`: compares meshes under the root scan paths against catalog entries and reports missing or stale references.
 - `FixSyntySidekickSkeletonTransformBones`: repairs imported Synty Sidekicks skeletal meshes that contain extra `transform1`, `transform2`, or `transform3` hierarchy bones.
-- `RebuildCatalogFromAssetRegistry`: discovers pack catalog assets under `PackCatalogScanRootPaths` and repopulates the root pack arrays by `PackType`.
 
-For the bundled plugin catalogs, the usual maintenance actions are `FixSyntySidekickSkeletonTransformBones`, `RebuildAllPackCatalogsFromAssetRegistry`, and `ValidateCatalogAgainstAssetRegistry`.
+For initial setup with the bundled plugin catalogs, use `RebuildCatalogFromAssetRegistry`, then `RebuildAllPackCatalogsFromAssetRegistry`, followed by `ValidateCatalogAgainstAssetRegistry`.
 
 ## Creating A New Sidekick With A COI
 
@@ -262,7 +293,8 @@ If no mesh options appear:
 
 - Confirm `Root Catalog` points to the plugin `SD_RootCatalog`.
 - Confirm `SD_RootCatalog > ScanRootPaths` has at least one entry and points to your imported Sidekicks skeletal mesh folders.
-- Confirm `SD_RootCatalog` references the bundled pack catalogs.
+- Confirm `PackCatalogScanRootPaths` contains `/MutableSidekicksPlugin/Core/DataAssets`.
+- Run `RebuildCatalogFromAssetRegistry` and confirm `SD_RootCatalog` now references the bundled pack catalogs.
 - Run `RebuildAllPackCatalogsFromAssetRegistry`.
 - Run `ValidateCatalogAgainstAssetRegistry`.
 
