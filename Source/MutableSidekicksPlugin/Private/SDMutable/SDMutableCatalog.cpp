@@ -14,6 +14,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
+#include "Misc/ScopedSlowTask.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/StaticMeshVertexBuffer.h"
@@ -21,6 +23,7 @@
 #include "ScopedTransaction.h"
 #include "SkeletalMeshAttributes.h"
 #include "SkeletonModifier.h"
+#include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #endif
@@ -75,6 +78,19 @@ namespace
 		int32 NumMeshesChanged = 0;
 		int32 NumMeshesSaved = 0;
 		int32 NumSkeletonsSaved = 0;
+		int32 NumFailures = 0;
+	};
+
+	struct FSDMutableUniqueSkeletonStats
+	{
+		int32 NumCatalogMeshes = 0;
+		int32 NumMeshesLoaded = 0;
+		int32 NumAlreadyAssigned = 0;
+		int32 NumSkeletonsCreated = 0;
+		int32 NumSkeletonsReused = 0;
+		int32 NumMeshesAssigned = 0;
+		int32 NumSkeletonsSaved = 0;
+		int32 NumMeshesSaved = 0;
 		int32 NumFailures = 0;
 	};
 
@@ -1531,6 +1547,213 @@ void USDMutableCatalog::FixSyntySidekickSkeletonTransformBones()
 		Stats.NumFailures);
 #else
 	UE_LOG(LogSDMutableCatalog, Warning, TEXT("FixSyntySidekickSkeletonTransformBones is editor-only."));
+#endif
+}
+
+void USDMutableCatalog::CreateUniqueSkeletonsForCatalogMeshes()
+{
+#if WITH_EDITOR
+	TSet<FSoftObjectPath> CatalogMeshPathSet;
+	GetSkeletalMeshesFromCatalog(*this, CatalogMeshPathSet);
+
+	TArray<FSoftObjectPath> CatalogMeshPaths = CatalogMeshPathSet.Array();
+	CatalogMeshPaths.Sort([](const FSoftObjectPath& Left, const FSoftObjectPath& Right)
+	{
+		return Left.ToString() < Right.ToString();
+	});
+
+	FSDMutableUniqueSkeletonStats Stats;
+	Stats.NumCatalogMeshes = CatalogMeshPaths.Num();
+
+	FScopedSlowTask SlowTask(
+		CatalogMeshPaths.Num(),
+		NSLOCTEXT("SDMutableCatalog", "CreateUniqueSkeletonsProgress", "Creating unique skeletons for catalog meshes..."));
+	SlowTask.MakeDialog(true);
+
+	int32 NumProcessedMeshes = 0;
+	for (const FSoftObjectPath& MeshPath : CatalogMeshPaths)
+	{
+		if (SlowTask.ShouldCancel())
+		{
+			UE_LOG(LogSDMutableCatalog, Warning, TEXT("Unique skeleton creation cancelled by user."));
+			break;
+		}
+
+		++NumProcessedMeshes;
+		ON_SCOPE_EXIT
+		{
+			// Thousands of source meshes can be catalogued; release saved packages in bounded batches.
+			if (NumProcessedMeshes % 50 == 0)
+			{
+				CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+			}
+		};
+
+		SlowTask.EnterProgressFrame(
+			1.0f,
+			FText::Format(
+				NSLOCTEXT("SDMutableCatalog", "CreateUniqueSkeletonForMeshProgress", "Processing {0}"),
+				FText::FromString(MeshPath.GetAssetName())));
+
+		USkeletalMesh* SkeletalMesh = Cast<USkeletalMesh>(MeshPath.TryLoad());
+		if (!SkeletalMesh)
+		{
+			++Stats.NumFailures;
+			UE_LOG(LogSDMutableCatalog, Warning, TEXT("Failed to load catalog skeletal mesh: %s"), *MeshPath.ToString());
+			continue;
+		}
+
+		++Stats.NumMeshesLoaded;
+
+		const FString MeshPackageName = SkeletalMesh->GetOutermost()->GetName();
+		const FString MeshPackagePath = FPackageName::GetLongPackagePath(MeshPackageName);
+		const FString SkeletonAssetName = TEXT("SKEL_") + SkeletalMesh->GetName();
+		const FString SkeletonPackageName = FString::Printf(TEXT("%s/%s"), *MeshPackagePath, *SkeletonAssetName);
+		const FString SkeletonObjectPath = FString::Printf(TEXT("%s.%s"), *SkeletonPackageName, *SkeletonAssetName);
+
+		USkeleton* CurrentSkeleton = SkeletalMesh->GetSkeleton();
+		if (CurrentSkeleton && CurrentSkeleton->GetPathName() == SkeletonObjectPath)
+		{
+			++Stats.NumAlreadyAssigned;
+			UE_LOG(
+				LogSDMutableCatalog,
+				Verbose,
+				TEXT("%s already uses its associated skeleton %s; skipping."),
+				*SkeletalMesh->GetPathName(),
+				*SkeletonObjectPath);
+			continue;
+		}
+
+		USkeleton* UniqueSkeleton = LoadObject<USkeleton>(nullptr, *SkeletonObjectPath);
+		bool bCreatedSkeleton = false;
+
+		if (!UniqueSkeleton)
+		{
+			if (FPackageName::DoesPackageExist(SkeletonPackageName))
+			{
+				++Stats.NumFailures;
+				UE_LOG(
+					LogSDMutableCatalog,
+					Warning,
+					TEXT("Cannot create %s because that package already exists but does not contain the expected USkeleton asset."),
+					*SkeletonObjectPath);
+				continue;
+			}
+
+			UPackage* SkeletonPackage = CreatePackage(*SkeletonPackageName);
+			if (!SkeletonPackage)
+			{
+				++Stats.NumFailures;
+				UE_LOG(LogSDMutableCatalog, Warning, TEXT("Failed to create skeleton package: %s"), *SkeletonPackageName);
+				continue;
+			}
+
+			UniqueSkeleton = NewObject<USkeleton>(
+				SkeletonPackage,
+				*SkeletonAssetName,
+				RF_Public | RF_Standalone | RF_Transactional);
+
+			if (!UniqueSkeleton || !UniqueSkeleton->MergeAllBonesToBoneTree(SkeletalMesh, false))
+			{
+				++Stats.NumFailures;
+				UE_LOG(
+					LogSDMutableCatalog,
+					Warning,
+					TEXT("Failed to create %s from skeletal mesh %s."),
+					*SkeletonObjectPath,
+					*SkeletalMesh->GetPathName());
+
+				if (UniqueSkeleton)
+				{
+					UniqueSkeleton->ClearFlags(RF_Public | RF_Standalone);
+				}
+				continue;
+			}
+
+			FAssetRegistryModule::AssetCreated(UniqueSkeleton);
+			UniqueSkeleton->MarkPackageDirty();
+			bCreatedSkeleton = true;
+			++Stats.NumSkeletonsCreated;
+		}
+		else
+		{
+			// A previous partial run may have created the expected asset without assigning it to this mesh.
+			UniqueSkeleton->Modify();
+			if (!UniqueSkeleton->MergeAllBonesToBoneTree(SkeletalMesh, false))
+			{
+				++Stats.NumFailures;
+				UE_LOG(
+					LogSDMutableCatalog,
+					Warning,
+					TEXT("Existing associated skeleton %s is incompatible with skeletal mesh %s."),
+					*SkeletonObjectPath,
+					*SkeletalMesh->GetPathName());
+				continue;
+			}
+
+			UniqueSkeleton->MarkPackageDirty();
+			++Stats.NumSkeletonsReused;
+		}
+
+		FAssetNotifications::SkeletonNeedsToBeSaved(UniqueSkeleton);
+
+		if (SaveAssetPackage(*UniqueSkeleton))
+		{
+			++Stats.NumSkeletonsSaved;
+		}
+		else
+		{
+			++Stats.NumFailures;
+			UE_LOG(
+				LogSDMutableCatalog,
+				Warning,
+				TEXT("Did not assign %s because associated skeleton %s could not be saved."),
+				*SkeletalMesh->GetPathName(),
+				*UniqueSkeleton->GetPathName());
+			continue;
+		}
+
+		SkeletalMesh->SetFlags(RF_Transactional);
+		SkeletalMesh->Modify();
+		SkeletalMesh->SetSkeleton(UniqueSkeleton);
+		SkeletalMesh->PostEditChange();
+		SkeletalMesh->MarkPackageDirty();
+		++Stats.NumMeshesAssigned;
+
+		if (SaveAssetPackage(*SkeletalMesh))
+		{
+			++Stats.NumMeshesSaved;
+		}
+		else
+		{
+			++Stats.NumFailures;
+		}
+
+		UE_LOG(
+			LogSDMutableCatalog,
+			Log,
+			TEXT("%s associated %s skeleton %s."),
+			*SkeletalMesh->GetPathName(),
+			bCreatedSkeleton ? TEXT("new") : TEXT("existing"),
+			*UniqueSkeleton->GetPathName());
+	}
+
+	UE_LOG(
+		LogSDMutableCatalog,
+		Log,
+		TEXT("Finished unique catalog skeleton creation for %s. CatalogMeshes=%d Loaded=%d AlreadyAssigned=%d Created=%d Reused=%d Assigned=%d SkeletonsSaved=%d MeshesSaved=%d Failures=%d"),
+		*GetName(),
+		Stats.NumCatalogMeshes,
+		Stats.NumMeshesLoaded,
+		Stats.NumAlreadyAssigned,
+		Stats.NumSkeletonsCreated,
+		Stats.NumSkeletonsReused,
+		Stats.NumMeshesAssigned,
+		Stats.NumSkeletonsSaved,
+		Stats.NumMeshesSaved,
+		Stats.NumFailures);
+#else
+	UE_LOG(LogSDMutableCatalog, Warning, TEXT("CreateUniqueSkeletonsForCatalogMeshes is editor-only."));
 #endif
 }
 

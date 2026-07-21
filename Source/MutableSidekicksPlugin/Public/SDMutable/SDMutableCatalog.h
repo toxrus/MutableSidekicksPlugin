@@ -277,6 +277,10 @@ public:
 	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
 	void FixSyntySidekickSkeletonTransformBones();
 
+	/** Create and assign a same-folder SKEL_<MeshName> asset for every catalog mesh that does not already use one. */
+	UFUNCTION(CallInEditor, Category="SDMutable|Catalog")
+	void CreateUniqueSkeletonsForCatalogMeshes();
+
 	UFUNCTION(BlueprintPure, Category="SDMutable")
 	bool GetSlotTable(ESDMutablePartSlot Slot, FSDMutableSlotTable& OutSlotTable) const;
 
