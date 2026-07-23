@@ -16,6 +16,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category="Catalog", meta=(AllowedClasses="/Script/MutableSidekicksPlugin.SDMutableCatalog"))
 	TSoftObjectPtr<USDMutableCatalog> RootCatalog;
 
+	/** Optional Asset Registry root containing T_Icon_<SkeletalMeshAssetName> thumbnail textures. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category="Catalog", meta=(LongPackageName))
+	FString IconScanRootPath;
+
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category="Asset Creation", meta=(AllowedClasses="/Script/CustomizableObject.CustomizableObject"))
 	TSoftObjectPtr<UCustomizableObject> SidekicksCustomizableObject;
 

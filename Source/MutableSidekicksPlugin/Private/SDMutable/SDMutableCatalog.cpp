@@ -2,6 +2,7 @@
 
 #include "Engine/SkeletalMesh.h"
 #include "Engine/Texture2D.h"
+#include "SDMutable/SDMutableDeveloperSettings.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetData.h"
@@ -970,7 +971,7 @@ namespace
 			return FallbackRootPaths;
 		}
 
-		return { TEXT("/Game/Sidekicks") };
+		return {};
 	}
 
 	void PopulateSkeletalMeshScanFilter(FARFilter& Filter, const TArray<FString>& RootPaths)
@@ -990,12 +991,29 @@ namespace
 	TMap<FName, FSoftObjectPath> BuildIconThumbnailMap()
 	{
 		TMap<FName, FSoftObjectPath> ThumbnailsByAssetName;
+		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
+		if (!Settings || Settings->IconScanRootPath.IsEmpty())
+		{
+			return ThumbnailsByAssetName;
+		}
+
+		FString IconScanRootPath = Settings->IconScanRootPath;
+		IconScanRootPath.RemoveFromEnd(TEXT("/"));
+		if (!FPackageName::IsValidLongPackageName(IconScanRootPath))
+		{
+			UE_LOG(
+				LogSDMutableCatalog,
+				Warning,
+				TEXT("Skipping icon thumbnail scan: '%s' is not a valid package path. Configure Icon Scan Root Path in Project Settings > Plugins > Sidekicks Mutable."),
+				*Settings->IconScanRootPath);
+			return ThumbnailsByAssetName;
+		}
 
 		// Icons follow T_Icon_<SkeletalMeshAssetName>; store soft paths so catalog rows stay cheap to load.
 		FARFilter Filter;
 		Filter.bRecursivePaths = true;
 		Filter.ClassPaths.Add(UTexture2D::StaticClass()->GetClassPathName());
-		Filter.PackagePaths.Add(FName(TEXT("/Game/SidekicksMutable/Icons")));
+		Filter.PackagePaths.Add(FName(*IconScanRootPath));
 
 		TArray<FAssetData> IconAssets;
 		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
@@ -1024,6 +1042,11 @@ namespace
 
 	void GetSkeletalMeshesFromAssetRegistry(const TArray<FString>& RootPaths, TSet<FSoftObjectPath>& OutMeshPaths)
 	{
+		if (RootPaths.IsEmpty())
+		{
+			return;
+		}
+
 		FARFilter Filter;
 		PopulateSkeletalMeshScanFilter(Filter, RootPaths);
 
@@ -1188,6 +1211,16 @@ namespace
 		const bool bClearExisting)
 	{
 		FSDMutableCatalogScanStats Stats;
+		const TArray<FString> ResolvedRootPaths = ResolveRootPaths(RootPaths, PackCatalog.ScanRootPaths);
+		if (ResolvedRootPaths.IsEmpty())
+		{
+			UE_LOG(
+				LogSDMutableCatalog,
+				Warning,
+				TEXT("Cannot rebuild pack catalog %s: configure at least one ScanRootPath on the root or pack catalog."),
+				*PackCatalog.GetName());
+			return Stats;
+		}
 
 		if (bClearExisting)
 		{
@@ -1211,7 +1244,7 @@ namespace
 		}
 
 		FARFilter Filter;
-		PopulateSkeletalMeshScanFilter(Filter, ResolveRootPaths(RootPaths, PackCatalog.ScanRootPaths));
+		PopulateSkeletalMeshScanFilter(Filter, ResolvedRootPaths);
 
 		TArray<FAssetData> MeshAssets;
 		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
@@ -1299,6 +1332,17 @@ void USDMutableCatalogPack::RebuildPackCatalogFromAssetRegistry()
 void USDMutableCatalog::RebuildCatalogFromAssetRegistry()
 {
 #if WITH_EDITOR
+	const TArray<FString> ResolvedPackCatalogRootPaths = ResolveRootPaths(PackCatalogScanRootPaths, {});
+	if (ResolvedPackCatalogRootPaths.IsEmpty())
+	{
+		UE_LOG(
+			LogSDMutableCatalog,
+			Warning,
+			TEXT("Cannot rebuild root catalog %s: configure at least one PackCatalogScanRootPath."),
+			*GetName());
+		return;
+	}
+
 	Modify();
 	SpeciesPackCatalogs.Reset();
 	OutfitPackCatalogs.Reset();
@@ -1309,7 +1353,7 @@ void USDMutableCatalog::RebuildCatalogFromAssetRegistry()
 	Filter.bRecursivePaths = true;
 	Filter.ClassPaths.Add(USDMutableCatalogPack::StaticClass()->GetClassPathName());
 
-	for (const FString& RootPath : ResolveRootPaths(PackCatalogScanRootPaths, {}))
+	for (const FString& RootPath : ResolvedPackCatalogRootPaths)
 	{
 		if (!RootPath.IsEmpty())
 		{
@@ -1419,10 +1463,21 @@ void USDMutableCatalog::RebuildAllPackCatalogsFromAssetRegistry()
 void USDMutableCatalog::ValidateCatalogAgainstAssetRegistry()
 {
 #if WITH_EDITOR
+	const TArray<FString> ResolvedRootPaths = ResolveRootPaths(ScanRootPaths, {});
+	if (ResolvedRootPaths.IsEmpty())
+	{
+		UE_LOG(
+			LogSDMutableCatalog,
+			Warning,
+			TEXT("Cannot validate catalog %s: configure at least one ScanRootPath."),
+			*GetName());
+		return;
+	}
+
 	TSet<FSoftObjectPath> AssetRegistryMeshPaths;
 	TSet<FSoftObjectPath> CatalogMeshPaths;
 
-	GetSkeletalMeshesFromAssetRegistry(ResolveRootPaths(ScanRootPaths, {}), AssetRegistryMeshPaths);
+	GetSkeletalMeshesFromAssetRegistry(ResolvedRootPaths, AssetRegistryMeshPaths);
 	GetSkeletalMeshesFromCatalog(*this, CatalogMeshPaths);
 
 	TSet<FSoftObjectPath> MissingFromCatalog = AssetRegistryMeshPaths.Difference(CatalogMeshPaths);
@@ -1464,8 +1519,19 @@ void USDMutableCatalog::ValidateCatalogAgainstAssetRegistry()
 void USDMutableCatalog::FixSyntySidekickSkeletonTransformBones()
 {
 #if WITH_EDITOR
+	const TArray<FString> ResolvedRootPaths = ResolveRootPaths(ScanRootPaths, {});
+	if (ResolvedRootPaths.IsEmpty())
+	{
+		UE_LOG(
+			LogSDMutableCatalog,
+			Warning,
+			TEXT("Cannot fix skeleton transform bones for catalog %s: configure at least one ScanRootPath."),
+			*GetName());
+		return;
+	}
+
 	FARFilter Filter;
-	PopulateSkeletalMeshScanFilter(Filter, ResolveRootPaths(ScanRootPaths, {}));
+	PopulateSkeletalMeshScanFilter(Filter, ResolvedRootPaths);
 
 	TArray<FAssetData> MeshAssets;
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));

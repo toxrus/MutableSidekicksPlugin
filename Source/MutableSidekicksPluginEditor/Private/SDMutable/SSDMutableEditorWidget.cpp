@@ -1072,15 +1072,6 @@ void SSDMutableEditorWidget::RefreshTargetFromSelection()
 		EditorColorPalette = Component->ColorPalette;
 		EditorColorPalette.EnsureColorSlotCount();
 
-		if (!Component->Catalog && LoadedCatalog.IsValid())
-		{
-			Component->Modify();
-			Actor->Modify();
-			Component->Catalog = LoadedCatalog.Get();
-			Component->MarkPackageDirty();
-			Actor->MarkPackageDirty();
-		}
-
 		Component->ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
 
 		TargetStatus = FString::Printf(
@@ -2366,11 +2357,6 @@ void SSDMutableEditorWidget::ClearSlot(TSharedPtr<FSDMutableSlotListItem> SlotIt
 	SelectedSlotItem = SlotItem;
 	if (Component)
 	{
-		if (!Component->Catalog)
-		{
-			Component->Catalog = Catalog;
-		}
-
 		Component->SetPart(SlotItem->Slot, NAME_None, true);
 		Component->UpdateMutableInstance(false, false);
 	}
@@ -2420,11 +2406,6 @@ void SSDMutableEditorWidget::ClearAllSlots()
 
 	if (Component)
 	{
-		if (!Component->Catalog)
-		{
-			Component->Catalog = Catalog;
-		}
-
 		for (const TSharedPtr<FSDMutableSlotListItem>& SlotItem : SlotItems)
 		{
 			if (SlotItem.IsValid())
@@ -3089,8 +3070,7 @@ void SSDMutableEditorWidget::SaveCurrentRecipeAsset()
 	}
 
 	SavedCoi->Modify();
-	const USDMutableCatalog* TargetCatalog = Component ? Component->Catalog.Get() : LoadedCatalog.Get();
-	SDMutableEditorWidgetPrivate::ApplyRecipeToCustomizableObjectInstance(*SavedCoi, TargetCatalog, SavedRecipe);
+	SDMutableEditorWidgetPrivate::ApplyRecipeToCustomizableObjectInstance(*SavedCoi, LoadedCatalog.Get(), SavedRecipe);
 	if (bCreatedCoi)
 	{
 		FAssetRegistryModule::AssetCreated(SavedCoi);
@@ -3172,11 +3152,6 @@ void SSDMutableEditorWidget::ApplyPart(TSharedPtr<FSDMutablePartListItem> PartIt
 	if (Component)
 	{
 		// Component writes go through USDMutableComponent so actor-local editor/runtime COI ownership is preserved.
-		if (!Component->Catalog)
-		{
-			Component->Catalog = Catalog;
-		}
-
 		Component->SetPart(SelectedSlotItem->Slot, PartItem->Part.PartId, true);
 		Component->UpdateMutableInstance(false, false);
 	}

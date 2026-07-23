@@ -7,6 +7,7 @@
 #include "SDMutableComponent.generated.h"
 
 class UCustomizableObjectInstance;
+class UCustomizableObject;
 class USDMutableCatalog;
 class USDMutableSidekickRecipeAsset;
 class USkeletalMesh;
@@ -24,10 +25,6 @@ class MUTABLESIDEKICKSPLUGIN_API USDMutableComponent : public UActorComponent
 public:
 	USDMutableComponent();
 
-	/** Root catalog used to resolve recipe slot IDs into skeletal mesh assets and Mutable parameter names. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable")
-	TObjectPtr<USDMutableCatalog> Catalog;
-
 	/** Active instance currently assigned through this component; may be a template, editor clone, or runtime clone. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="SDMutable")
 	TObjectPtr<UCustomizableObjectInstance> CustomizableObjectInstance;
@@ -36,7 +33,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Preset")
 	TSoftObjectPtr<USDMutableSidekickRecipeAsset> SourceRecipeAsset;
 
-	/** Durable COI/template used as the source for transient editor/runtime clones. */
+	/** Optional durable template for transient clones; ignored when it belongs to a different CO than Project Settings. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Preset")
 	TSoftObjectPtr<UCustomizableObjectInstance> TemplateCustomizableObjectInstance;
 
@@ -124,6 +121,11 @@ private:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	void RefreshEditorPreviewFromRecipe();
 #endif
+#if WITH_EDITORONLY_DATA
+	bool WaitForConfiguredCustomizableObjectCompilation(UCustomizableObject& CustomizableObject);
+	void HandleConfiguredCustomizableObjectCompiled();
+	void StopWaitingForConfiguredCustomizableObjectCompilation();
+#endif
 
 	bool ApplyPartToMutable(const FSDMutablePartSelection& Selection) const;
 	bool ApplyFloatParameter(FName ParameterName, float Value) const;
@@ -134,11 +136,16 @@ private:
 	bool SynchronizeCustomizableObjectInstanceFromOwnerInternal(bool bLogErrors);
 	bool EnsureEditorCustomizableObjectInstance(bool bLogErrors = true);
 	bool IsRuntimeWorld() const;
+	/** Returns the authoritative root catalog selected in project settings. */
+	USDMutableCatalog* GetConfiguredCatalog() const;
 	/** Returns the clone/template that should receive parameter writes for the current world type. */
 	UCustomizableObjectInstance* GetActiveCustomizableObjectInstance() const;
 
 #if WITH_EDITORONLY_DATA
 	/** Automatic editor preview hydration should not dirty level packages. */
 	bool bSuppressEditorPreviewDirty = false;
+
+	TWeakObjectPtr<UCustomizableObject> PendingCompiledCustomizableObject;
+	FDelegateHandle PendingCompiledCustomizableObjectHandle;
 #endif
 };

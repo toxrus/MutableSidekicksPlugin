@@ -151,18 +151,18 @@ class MUTABLESIDEKICKSPLUGIN_API USDMutableCatalog : public UDataAsset
 public:
 	/** Mesh applied when a recipe clears a slot; Mutable skeletal mesh parameters need a valid mesh, not nullptr. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Defaults")
-	TSoftObjectPtr<USkeletalMesh> EmptySkeletalMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Sidekicks/Base/SKM_Sidekicks_Empty.SKM_Sidekicks_Empty")));
+	TSoftObjectPtr<USkeletalMesh> EmptySkeletalMesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Defaults")
 	TSoftObjectPtr<UTexture2D> EmptySkeletalMeshUIThumbnail;
 
-	/** Mesh scan roots for imported Synty assets. Empty shipped assets fall back to /Game/Sidekicks in code paths that resolve roots. */
+	/** Mesh scan roots for imported Synty assets. Catalog tools require at least one explicit scan root. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
-	TArray<FString> ScanRootPaths = { TEXT("/Game/Sidekicks") };
+	TArray<FString> ScanRootPaths;
 
 	/** Optional roots used only to discover pack DataAssets, not the meshes inside already referenced packs. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
-	TArray<FString> PackCatalogScanRootPaths = { TEXT("/Game/Mutable/DataAssets") };
+	TArray<FString> PackCatalogScanRootPaths;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="SDMutable|Import")
 	TArray<FSDMutableSlotNameRule> SlotNameRules = {

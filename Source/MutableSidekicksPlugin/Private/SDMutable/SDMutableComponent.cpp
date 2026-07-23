@@ -112,6 +112,21 @@ namespace
 		// A valid component without a COI can still receive the clone created by this component.
 		return FirstValidComponent;
 	}
+
+	UCustomizableObject* LoadConfiguredCustomizableObject()
+	{
+		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
+		return Settings ? Settings->SidekicksCustomizableObject.LoadSynchronous() : nullptr;
+	}
+
+	bool UsesConfiguredCustomizableObject(
+		UCustomizableObjectInstance* Instance,
+		const UCustomizableObject* ConfiguredCustomizableObject)
+	{
+		return Instance
+			&& ConfiguredCustomizableObject
+			&& Instance->GetCustomizableObject() == ConfiguredCustomizableObject;
+	}
 }
 
 USDMutableComponent::USDMutableComponent()
@@ -135,6 +150,9 @@ void USDMutableComponent::OnRegister()
 void USDMutableComponent::OnUnregister()
 {
 	// Drop transient preview/runtime objects before the actor/component leaves the world.
+#if WITH_EDITORONLY_DATA
+	StopWaitingForConfiguredCustomizableObjectCompilation();
+#endif
 	RuntimeColorTexture = nullptr;
 	EditorCustomizableObjectInstance = nullptr;
 	Super::OnUnregister();
@@ -160,6 +178,7 @@ void USDMutableComponent::PostLoad()
 {
 	Super::PostLoad();
 	// These references are world-session state and should be reconstructed from the durable recipe after load.
+	StopWaitingForConfiguredCustomizableObjectCompilation();
 	EditorCustomizableObjectInstance = nullptr;
 	RuntimeColorTexture = nullptr;
 	if (!HasAnyFlags(RF_ClassDefaultObject))
@@ -191,8 +210,84 @@ void USDMutableComponent::RefreshEditorPreviewFromRecipe()
 }
 #endif
 
+#if WITH_EDITORONLY_DATA
+bool USDMutableComponent::WaitForConfiguredCustomizableObjectCompilation(UCustomizableObject& CustomizableObject)
+{
+	if (CustomizableObject.IsCompiled())
+	{
+		StopWaitingForConfiguredCustomizableObjectCompilation();
+		return true;
+	}
+
+	if (PendingCompiledCustomizableObject.Get() != &CustomizableObject
+		|| !PendingCompiledCustomizableObjectHandle.IsValid())
+	{
+		StopWaitingForConfiguredCustomizableObjectCompilation();
+		PendingCompiledCustomizableObject = &CustomizableObject;
+		PendingCompiledCustomizableObjectHandle = CustomizableObject.GetPostCompileDelegate().AddUObject(
+			this,
+			&USDMutableComponent::HandleConfiguredCustomizableObjectCompiled);
+	}
+
+	// Bind before requesting automatic compilation so a fast DDC-backed compile cannot beat the callback.
+	if (!CustomizableObject.IsLoading())
+	{
+		CustomizableObject.ConditionalAutoCompile();
+	}
+
+	return CustomizableObject.IsCompiled();
+}
+
+void USDMutableComponent::HandleConfiguredCustomizableObjectCompiled()
+{
+	UCustomizableObject* CompiledCustomizableObject = PendingCompiledCustomizableObject.Get();
+	StopWaitingForConfiguredCustomizableObjectCompilation();
+
+	if (!CompiledCustomizableObject
+		|| !CompiledCustomizableObject->IsCompiled()
+		|| CompiledCustomizableObject != LoadConfiguredCustomizableObject())
+	{
+		return;
+	}
+
+	if (IsRuntimeWorld())
+	{
+		if (EnsureRuntimeCustomizableObjectInstance())
+		{
+			ApplyRecipeFromMutableDefaultsAndUpdate(false, false);
+		}
+	}
+	else
+	{
+		RefreshEditorPreviewFromRecipe();
+	}
+}
+
+void USDMutableComponent::StopWaitingForConfiguredCustomizableObjectCompilation()
+{
+	if (UCustomizableObject* PendingObject = PendingCompiledCustomizableObject.Get();
+		PendingObject && PendingCompiledCustomizableObjectHandle.IsValid())
+	{
+		PendingObject->GetPostCompileDelegate().Remove(PendingCompiledCustomizableObjectHandle);
+	}
+
+	PendingCompiledCustomizableObject.Reset();
+	PendingCompiledCustomizableObjectHandle.Reset();
+}
+#endif
+
 void USDMutableComponent::SetCustomizableObjectInstance(UCustomizableObjectInstance* InInstance)
 {
+	UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+	if (InInstance && !UsesConfiguredCustomizableObject(InInstance, ConfiguredCustomizableObject))
+	{
+		UE_LOG(LogSDMutable, Error, TEXT("Rejected COI %s on component %s because it does not use the Sidekicks Customizable Object selected in project settings (%s)."),
+			*GetNameSafe(InInstance),
+			*GetNameSafe(this),
+			*GetNameSafe(ConfiguredCustomizableObject));
+		return;
+	}
+
 #if WITH_EDITOR
 	ModifyObjectForEditor(this);
 	ModifyObjectForEditor(GetOwner());
@@ -217,7 +312,18 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwner()
 
 bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal(const bool bLogErrors)
 {
-	if (IsRuntimeWorld() && RuntimeCustomizableObjectInstance)
+	UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+	if (!ConfiguredCustomizableObject)
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot synchronize COI for %s: no Sidekicks Customizable Object is selected in project settings."),
+				*GetNameSafe(this));
+		}
+		return false;
+	}
+
+	if (IsRuntimeWorld() && UsesConfiguredCustomizableObject(RuntimeCustomizableObjectInstance, ConfiguredCustomizableObject))
 	{
 		return true;
 	}
@@ -247,26 +353,33 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 	UCustomizableObjectInstance* ActorInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
 	if (!IsRuntimeWorld() && EditorCustomizableObjectInstance)
 	{
-		// Once actor-mode editing has created a private editor clone, keep the skeletal component pointed at it.
-		if (ActorInstance != EditorCustomizableObjectInstance)
+		if (!UsesConfiguredCustomizableObject(EditorCustomizableObjectInstance, ConfiguredCustomizableObject))
 		{
-#if WITH_EDITOR
-			if (!bSuppressEditorPreviewDirty)
-			{
-				ModifyObjectForEditor(MutableSkeletalComponent);
-			}
-#endif
-			MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
-			ActorInstance = EditorCustomizableObjectInstance;
-#if WITH_EDITOR
-			if (!bSuppressEditorPreviewDirty)
-			{
-				MarkObjectDirtyForEditor(MutableSkeletalComponent);
-			}
-#endif
+			EditorCustomizableObjectInstance = nullptr;
 		}
-		CustomizableObjectInstance = EditorCustomizableObjectInstance;
-		return true;
+		else
+		{
+		// Once actor-mode editing has created a private editor clone, keep the skeletal component pointed at it.
+			if (ActorInstance != EditorCustomizableObjectInstance)
+			{
+#if WITH_EDITOR
+				if (!bSuppressEditorPreviewDirty)
+				{
+					ModifyObjectForEditor(MutableSkeletalComponent);
+				}
+#endif
+				MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
+				ActorInstance = EditorCustomizableObjectInstance;
+#if WITH_EDITOR
+				if (!bSuppressEditorPreviewDirty)
+				{
+					MarkObjectDirtyForEditor(MutableSkeletalComponent);
+				}
+#endif
+			}
+			CustomizableObjectInstance = EditorCustomizableObjectInstance;
+			return true;
+		}
 	}
 
 	if (!ActorInstance)
@@ -277,6 +390,18 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 				*GetNameSafe(this),
 				*GetNameSafe(Owner),
 				*GetNameSafe(MutableSkeletalComponent));
+		}
+		return false;
+	}
+
+	if (!UsesConfiguredCustomizableObject(ActorInstance, ConfiguredCustomizableObject))
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Warning, TEXT("Ignoring COI %s on actor %s because it does not use the configured Sidekicks Customizable Object %s."),
+				*GetNameSafe(ActorInstance),
+				*GetNameSafe(Owner),
+				*GetNameSafe(ConfiguredCustomizableObject));
 		}
 		return false;
 	}
@@ -314,10 +439,30 @@ bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLog
 		return EnsureRuntimeCustomizableObjectInstance();
 	}
 
-	if (EditorCustomizableObjectInstance)
+	UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+	if (!ConfiguredCustomizableObject)
+	{
+		if (bLogErrors)
+		{
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s: no Sidekicks Customizable Object is selected in project settings."),
+				*GetNameSafe(this));
+		}
+		return false;
+	}
+
+	if (!ConfiguredCustomizableObject->IsCompiled())
+	{
+#if WITH_EDITORONLY_DATA
+		WaitForConfiguredCustomizableObjectCompilation(*ConfiguredCustomizableObject);
+#endif
+		return false;
+	}
+
+	if (UsesConfiguredCustomizableObject(EditorCustomizableObjectInstance, ConfiguredCustomizableObject))
 	{
 		return SynchronizeCustomizableObjectInstanceFromOwnerInternal(bLogErrors);
 	}
+	EditorCustomizableObjectInstance = nullptr;
 
 	AActor* Owner = GetOwner();
 	if (!Owner)
@@ -342,20 +487,24 @@ bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLog
 	}
 
 	UCustomizableObjectInstance* TemplateInstance = CustomizableObjectInstance.Get();
-	if (!TemplateInstance)
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
 	{
 		TemplateInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
 	}
-	if (!TemplateInstance)
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
 	{
 		TemplateInstance = TemplateCustomizableObjectInstance.LoadSynchronous();
 	}
-	if (!TemplateInstance)
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
 	{
 		if (USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous())
 		{
 			TemplateInstance = RecipeAsset->CustomizableObjectInstance.LoadSynchronous();
 		}
+	}
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
+	{
+		TemplateInstance = nullptr;
 	}
 
 	// Editor clones isolate placed actors from shared COI assets while still using the template's Customizable Object.
@@ -369,21 +518,17 @@ bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLog
 	}
 	else
 	{
-		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
-		UCustomizableObject* SidekicksCustomizableObject = Settings ? Settings->SidekicksCustomizableObject.LoadSynchronous() : nullptr;
-		if (SidekicksCustomizableObject)
-		{
-			EditorCustomizableObjectInstance = SidekicksCustomizableObject->CreateInstance();
-		}
+		EditorCustomizableObjectInstance = ConfiguredCustomizableObject->CreateInstance();
 	}
 
 	if (!EditorCustomizableObjectInstance)
 	{
 		if (bLogErrors)
 		{
-			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s on actor %s: no template COI or configured Sidekicks Customizable Object was available."),
+			UE_LOG(LogSDMutable, Error, TEXT("Cannot create editor COI for %s on actor %s from configured Sidekicks Customizable Object %s."),
 				*GetNameSafe(this),
-				*GetNameSafe(Owner));
+				*GetNameSafe(Owner),
+				*GetNameSafe(ConfiguredCustomizableObject));
 		}
 		return false;
 	}
@@ -432,7 +577,19 @@ bool USDMutableComponent::CopyFromRecipeAsset(const bool bApplyToMutable)
 	ColorPalette = RecipeAsset->ColorPalette;
 	if (!RecipeAsset->CustomizableObjectInstance.IsNull())
 	{
-		TemplateCustomizableObjectInstance = RecipeAsset->CustomizableObjectInstance;
+		UCustomizableObjectInstance* RecipeInstance = RecipeAsset->CustomizableObjectInstance.LoadSynchronous();
+		UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+		if (UsesConfiguredCustomizableObject(RecipeInstance, ConfiguredCustomizableObject))
+		{
+			TemplateCustomizableObjectInstance = RecipeAsset->CustomizableObjectInstance;
+		}
+		else
+		{
+			UE_LOG(LogSDMutable, Warning, TEXT("Recipe asset %s COI %s does not use configured Sidekicks Customizable Object %s; copied recipe data but ignored its COI."),
+				*GetNameSafe(RecipeAsset),
+				*GetNameSafe(RecipeInstance),
+				*GetNameSafe(ConfiguredCustomizableObject));
+		}
 	}
 	OnRecipeChanged.Broadcast(Recipe);
 
@@ -470,7 +627,24 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 		return false;
 	}
 
-	if (RuntimeCustomizableObjectInstance)
+	UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+	if (!ConfiguredCustomizableObject)
+	{
+		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s on actor %s: no Sidekicks Customizable Object is selected in project settings."),
+			*GetNameSafe(this),
+			*GetNameSafe(Owner));
+		return false;
+	}
+
+	if (!ConfiguredCustomizableObject->IsCompiled())
+	{
+#if WITH_EDITORONLY_DATA
+		WaitForConfiguredCustomizableObjectCompilation(*ConfiguredCustomizableObject);
+#endif
+		return false;
+	}
+
+	if (UsesConfiguredCustomizableObject(RuntimeCustomizableObjectInstance, ConfiguredCustomizableObject))
 	{
 		if (MutableSkeletalComponent->GetCustomizableObjectInstance() != RuntimeCustomizableObjectInstance)
 		{
@@ -479,18 +653,23 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 		CustomizableObjectInstance = RuntimeCustomizableObjectInstance;
 		return true;
 	}
+	RuntimeCustomizableObjectInstance = nullptr;
 
 	UCustomizableObjectInstance* TemplateInstance = TemplateCustomizableObjectInstance.LoadSynchronous();
-	if (!TemplateInstance)
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
 	{
 		TemplateInstance = MutableSkeletalComponent->GetCustomizableObjectInstance();
 	}
-	if (!TemplateInstance)
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
 	{
 		if (USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous())
 		{
 			TemplateInstance = RecipeAsset->CustomizableObjectInstance.LoadSynchronous();
 		}
+	}
+	if (!UsesConfiguredCustomizableObject(TemplateInstance, ConfiguredCustomizableObject))
+	{
+		TemplateInstance = nullptr;
 	}
 
 	// Game worlds get a per-actor transient clone so runtime changes cannot leak through shared template assets.
@@ -504,19 +683,15 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 	}
 	else
 	{
-		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
-		UCustomizableObject* SidekicksCustomizableObject = Settings ? Settings->SidekicksCustomizableObject.LoadSynchronous() : nullptr;
-		if (SidekicksCustomizableObject)
-		{
-			RuntimeCustomizableObjectInstance = SidekicksCustomizableObject->CreateInstance();
-		}
+		RuntimeCustomizableObjectInstance = ConfiguredCustomizableObject->CreateInstance();
 	}
 
 	if (!RuntimeCustomizableObjectInstance)
 	{
-		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s on actor %s: no template COI or configured Sidekicks Customizable Object was available."),
+		UE_LOG(LogSDMutable, Error, TEXT("Cannot create runtime COI for %s on actor %s from configured Sidekicks Customizable Object %s."),
 			*GetNameSafe(this),
-			*GetNameSafe(Owner));
+			*GetNameSafe(Owner),
+			*GetNameSafe(ConfiguredCustomizableObject));
 		return false;
 	}
 
@@ -569,14 +744,14 @@ void USDMutableComponent::SetColorPalette(const FSDMutableColorPalette& InColorP
 void USDMutableComponent::ApplyRecipeToMutable()
 {
 	// Parameter writes must target the current-world clone when one exists, not the durable template COI.
-	if (IsRuntimeWorld())
+	const bool bInstanceReady = IsRuntimeWorld()
+		? EnsureRuntimeCustomizableObjectInstance()
+		: EnsureEditorCustomizableObjectInstance();
+	if (!bInstanceReady)
 	{
-		EnsureRuntimeCustomizableObjectInstance();
+		return;
 	}
-	else
-	{
-		EnsureEditorCustomizableObjectInstance();
-	}
+
 	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
 	UE_LOG(LogSDMutable, Verbose, TEXT("Applying Sidekicks recipe to Mutable instance %s. Parts=%d"),
 		*GetNameSafe(ActiveInstance),
@@ -651,14 +826,14 @@ bool USDMutableComponent::SetRecipeAndApplyFromMutableDefaultsAndUpdate(const FS
 
 bool USDMutableComponent::ResetMutableParametersToDefaults(const bool bUpdateAfterReset, const bool bIgnoreCloseDist, const bool bForceHighPriority)
 {
-	if (IsRuntimeWorld())
+	const bool bInstanceReady = IsRuntimeWorld()
+		? EnsureRuntimeCustomizableObjectInstance()
+		: EnsureEditorCustomizableObjectInstance();
+	if (!bInstanceReady)
 	{
-		EnsureRuntimeCustomizableObjectInstance();
+		return false;
 	}
-	else
-	{
-		EnsureEditorCustomizableObjectInstance();
-	}
+
 	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
 	if (!ActiveInstance)
 	{
@@ -683,14 +858,14 @@ bool USDMutableComponent::ResetMutableParametersToDefaults(const bool bUpdateAft
 
 void USDMutableComponent::UpdateMutableInstance(const bool bIgnoreCloseDist, const bool bForceHighPriority)
 {
-	if (IsRuntimeWorld())
+	const bool bInstanceReady = IsRuntimeWorld()
+		? EnsureRuntimeCustomizableObjectInstance()
+		: EnsureEditorCustomizableObjectInstance();
+	if (!bInstanceReady)
 	{
-		EnsureRuntimeCustomizableObjectInstance();
+		return;
 	}
-	else
-	{
-		EnsureEditorCustomizableObjectInstance();
-	}
+
 	UCustomizableObjectInstance* ActiveInstance = GetActiveCustomizableObjectInstance();
 	if (ActiveInstance)
 	{
@@ -825,9 +1000,10 @@ bool USDMutableComponent::GetPart(const ESDMutablePartSlot Slot, FName& OutOptio
 
 bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Selection) const
 {
-	if (!Catalog)
+	USDMutableCatalog* EffectiveCatalog = GetConfiguredCatalog();
+	if (!EffectiveCatalog)
 	{
-		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply Sidekicks part %s for slot %d: Catalog is null on component %s"),
+		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply Sidekicks part %s for slot %d: no catalog is set on component %s or in project settings"),
 			*Selection.OptionId.ToString(),
 			static_cast<int32>(Selection.Slot),
 			*GetNameSafe(this));
@@ -835,25 +1011,25 @@ bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Sele
 	}
 
 	FSDMutableSlotTable SlotTable;
-	if (!Catalog->GetSlotTable(Selection.Slot, SlotTable) || SlotTable.MutableParameterName.IsNone())
+	if (!EffectiveCatalog->GetSlotTable(Selection.Slot, SlotTable) || SlotTable.MutableParameterName.IsNone())
 	{
 		UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply Sidekicks part %s for slot %d: missing slot table or Mutable parameter name in catalog %s"),
 			*Selection.OptionId.ToString(),
 			static_cast<int32>(Selection.Slot),
-			*GetNameSafe(Catalog));
+			*GetNameSafe(EffectiveCatalog));
 		return false;
 	}
 
 	if (Selection.OptionId.IsNone())
 	{
 		// Mutable skeletal mesh parameters require a valid mesh, so clearing a slot applies the catalog's empty mesh.
-		USkeletalMesh* EmptyMesh = Catalog->LoadEmptySkeletalMesh();
+		USkeletalMesh* EmptyMesh = EffectiveCatalog->LoadEmptySkeletalMesh();
 		if (!EmptyMesh)
 		{
 			UE_LOG(LogSDMutable, Warning, TEXT("Cannot apply None for slot %d: root catalog %s has no loadable EmptySkeletalMesh (%s)"),
 				static_cast<int32>(Selection.Slot),
-				*GetNameSafe(Catalog),
-				*Catalog->EmptySkeletalMesh.ToSoftObjectPath().ToString());
+				*GetNameSafe(EffectiveCatalog),
+				*EffectiveCatalog->EmptySkeletalMesh.ToSoftObjectPath().ToString());
 			return false;
 		}
 
@@ -865,7 +1041,7 @@ bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Sele
 	}
 
 	FSDMutableCatalogPartEntry Part;
-	if (Catalog->FindPartById(Selection.OptionId, Part))
+	if (EffectiveCatalog->FindPartById(Selection.OptionId, Part))
 	{
 		bool bApplied = false;
 
@@ -895,7 +1071,7 @@ bool USDMutableComponent::ApplyPartToMutable(const FSDMutablePartSelection& Sele
 	{
 		UE_LOG(LogSDMutable, Verbose, TEXT("Part %s not found in catalog %s. Falling back to int option parameter %s."),
 			*Selection.OptionId.ToString(),
-			*GetNameSafe(Catalog),
+			*GetNameSafe(EffectiveCatalog),
 			*SlotTable.MutableParameterName.ToString());
 	}
 
@@ -1024,8 +1200,20 @@ bool USDMutableComponent::IsRuntimeWorld() const
 	return World && World->IsGameWorld();
 }
 
+USDMutableCatalog* USDMutableComponent::GetConfiguredCatalog() const
+{
+	const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
+	return Settings ? Settings->RootCatalog.LoadSynchronous() : nullptr;
+}
+
 UCustomizableObjectInstance* USDMutableComponent::GetActiveCustomizableObjectInstance() const
 {
+	UCustomizableObject* ConfiguredCustomizableObject = LoadConfiguredCustomizableObject();
+	if (!ConfiguredCustomizableObject || !ConfiguredCustomizableObject->IsCompiled())
+	{
+		return nullptr;
+	}
+
 	if (IsRuntimeWorld() && RuntimeCustomizableObjectInstance)
 	{
 		return RuntimeCustomizableObjectInstance;

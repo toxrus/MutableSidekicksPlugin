@@ -12,21 +12,16 @@
 namespace
 {
 	uint32 GSidekicksMutableAssetCategory = EAssetTypeCategories::Misc;
-	const TCHAR* DefaultSidekicksCustomizableObjectPath = TEXT("/Game/SidekicksMutable/CO_Sidekicks.CO_Sidekicks");
 
 	UCustomizableObject* LoadSidekicksCustomizableObject()
 	{
-		// Prefer explicit project settings; the hardcoded path is only a legacy fallback for local projects.
 		const USDMutableDeveloperSettings* Settings = GetDefault<USDMutableDeveloperSettings>();
-		if (Settings && !Settings->SidekicksCustomizableObject.IsNull())
+		if (!Settings || Settings->SidekicksCustomizableObject.IsNull())
 		{
-			if (UCustomizableObject* CustomizableObject = Settings->SidekicksCustomizableObject.LoadSynchronous())
-			{
-				return CustomizableObject;
-			}
+			return nullptr;
 		}
 
-		return LoadObject<UCustomizableObject>(nullptr, DefaultSidekicksCustomizableObjectPath);
+		return Settings->SidekicksCustomizableObject.LoadSynchronous();
 	}
 }
 
@@ -141,7 +136,9 @@ UObject* USDMutableSidekickCustomizableObjectInstanceFactory::FactoryCreateNew(
 	{
 		if (Warn)
 		{
-			Warn->Logf(ELogVerbosity::Error, TEXT("Cannot create Sidekick COI: Sidekicks Customizable Object is not configured and default %s could not be loaded."), DefaultSidekicksCustomizableObjectPath);
+			Warn->Logf(
+				ELogVerbosity::Error,
+				TEXT("Cannot create Sidekick COI: configure a loadable Sidekicks Customizable Object in Project Settings > Plugins > Mutable Sidekicks."));
 		}
 		return nullptr;
 	}
