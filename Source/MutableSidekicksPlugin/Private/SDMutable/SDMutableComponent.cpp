@@ -5,12 +5,14 @@
 #include "SDMutable/SDMutableParameters.h"
 #include "SDMutable/SDMutableSidekickRecipeAsset.h"
 #include "Animation/Skeleton.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "MuCO/CustomizableObject.h"
 #include "MuCO/CustomizableObjectInstance.h"
+#include "MuCO/CustomizableObjectInstanceUsage.h"
 #include "MuCO/CustomizableSkeletalComponent.h"
 #include "UObject/UnrealType.h"
 
@@ -127,6 +129,21 @@ namespace
 			&& ConfiguredCustomizableObject
 			&& Instance->GetCustomizableObject() == ConfiguredCustomizableObject;
 	}
+
+	void AssignInstanceToMutableComponent(
+		UCustomizableSkeletalComponent& MutableComponent,
+		UCustomizableObjectInstance* Instance)
+	{
+		MutableComponent.SetCustomizableObjectInstance(Instance);
+
+		// Blueprint preview actors do not always replay the attachment notification after their
+		// component templates are duplicated. Explicitly bind the usage to the preview mesh so
+		// a completed Mutable update has a skeletal component on which to install its result.
+		if (UCustomizableObjectInstanceUsage* InstanceUsage = MutableComponent.GetInstanceUsage())
+		{
+			InstanceUsage->AttachTo(Cast<USkeletalMeshComponent>(MutableComponent.GetAttachParent()));
+		}
+	}
 }
 
 USDMutableComponent::USDMutableComponent()
@@ -139,6 +156,10 @@ void USDMutableComponent::OnRegister()
 	Super::OnRegister();
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
+#if WITH_EDITOR
+		// Registration/reconstruction is preview hydration, not an authored actor edit.
+		TGuardValue<bool> SuppressEditorPreviewDirty(bSuppressEditorPreviewDirty, true);
+#endif
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
 #if WITH_EDITOR
 		// Loaded editor-world actors should preview their saved local recipe before PIE starts.
@@ -192,6 +213,10 @@ void USDMutableComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	if (!HasAnyFlags(RF_ClassDefaultObject))
 	{
+		if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(USDMutableComponent, SourceRecipeAsset))
+		{
+			HydrateStateFromSourceRecipeAsset();
+		}
 		SynchronizeCustomizableObjectInstanceFromOwnerInternal(false);
 		RefreshEditorPreviewFromRecipe();
 	}
@@ -368,7 +393,7 @@ bool USDMutableComponent::SynchronizeCustomizableObjectInstanceFromOwnerInternal
 					ModifyObjectForEditor(MutableSkeletalComponent);
 				}
 #endif
-				MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
+				AssignInstanceToMutableComponent(*MutableSkeletalComponent, EditorCustomizableObjectInstance);
 				ActorInstance = EditorCustomizableObjectInstance;
 #if WITH_EDITOR
 				if (!bSuppressEditorPreviewDirty)
@@ -542,7 +567,7 @@ bool USDMutableComponent::EnsureEditorCustomizableObjectInstance(const bool bLog
 		ModifyObjectForEditor(MutableSkeletalComponent);
 	}
 #endif
-	MutableSkeletalComponent->SetCustomizableObjectInstance(EditorCustomizableObjectInstance);
+	AssignInstanceToMutableComponent(*MutableSkeletalComponent, EditorCustomizableObjectInstance);
 	CustomizableObjectInstance = EditorCustomizableObjectInstance;
 #if WITH_EDITOR
 	if (!bSuppressEditorPreviewDirty)
@@ -604,6 +629,28 @@ bool USDMutableComponent::CopyFromRecipeAsset(const bool bApplyToMutable)
 	return true;
 }
 
+bool USDMutableComponent::HydrateStateFromSourceRecipeAsset()
+{
+	if (SourceRecipeAsset.IsNull())
+	{
+		return false;
+	}
+
+	USDMutableSidekickRecipeAsset* RecipeAsset = SourceRecipeAsset.LoadSynchronous();
+	if (!RecipeAsset)
+	{
+		UE_LOG(LogSDMutable, Warning, TEXT("Cannot hydrate Sidekicks state for %s: source recipe asset %s failed to load."),
+			*GetNameSafe(this),
+			*SourceRecipeAsset.ToSoftObjectPath().ToString());
+		return false;
+	}
+
+	Recipe = RecipeAsset->Recipe;
+	ColorPalette = RecipeAsset->ColorPalette;
+	OnRecipeChanged.Broadcast(Recipe);
+	return true;
+}
+
 bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 {
 	if (!IsRuntimeWorld())
@@ -648,7 +695,7 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 	{
 		if (MutableSkeletalComponent->GetCustomizableObjectInstance() != RuntimeCustomizableObjectInstance)
 		{
-			MutableSkeletalComponent->SetCustomizableObjectInstance(RuntimeCustomizableObjectInstance);
+			AssignInstanceToMutableComponent(*MutableSkeletalComponent, RuntimeCustomizableObjectInstance);
 		}
 		CustomizableObjectInstance = RuntimeCustomizableObjectInstance;
 		return true;
@@ -696,7 +743,7 @@ bool USDMutableComponent::EnsureRuntimeCustomizableObjectInstance()
 	}
 
 	RuntimeCustomizableObjectInstance->SetFlags(RF_Transient);
-	MutableSkeletalComponent->SetCustomizableObjectInstance(RuntimeCustomizableObjectInstance);
+	AssignInstanceToMutableComponent(*MutableSkeletalComponent, RuntimeCustomizableObjectInstance);
 	CustomizableObjectInstance = RuntimeCustomizableObjectInstance;
 	UE_LOG(LogSDMutable, Log, TEXT("Created private runtime COI %s for actor %s from template %s."),
 		*GetNameSafe(RuntimeCustomizableObjectInstance),
@@ -875,14 +922,6 @@ void USDMutableComponent::UpdateMutableInstance(const bool bIgnoreCloseDist, con
 			bForceHighPriority ? TEXT("true") : TEXT("false"));
 
 		ActiveInstance->UpdateSkeletalMeshAsync(bIgnoreCloseDist, bForceHighPriority);
-#if WITH_EDITOR
-		ActiveInstance->PostEditChange();
-		if (!bSuppressEditorPreviewDirty)
-		{
-			MarkObjectDirtyForEditor(this);
-			MarkObjectDirtyForEditor(GetOwner());
-		}
-#endif
 		return;
 	}
 

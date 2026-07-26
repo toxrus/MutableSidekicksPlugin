@@ -133,6 +133,8 @@ private:
 	bool ApplyTextureParameter(FName ParameterName, UTexture* Value) const;
 	bool ApplySkeletalMeshParameter(FName ParameterName, USkeletalMesh* Value) const;
 	bool ApplyIntOptionParameter(FName ParameterName, FName OptionId) const;
+	/** Seed reconstructable local state when the source recipe is explicitly assigned; actor-local state remains authoritative afterward. */
+	bool HydrateStateFromSourceRecipeAsset();
 	bool SynchronizeCustomizableObjectInstanceFromOwnerInternal(bool bLogErrors);
 	bool EnsureEditorCustomizableObjectInstance(bool bLogErrors = true);
 	bool IsRuntimeWorld() const;
